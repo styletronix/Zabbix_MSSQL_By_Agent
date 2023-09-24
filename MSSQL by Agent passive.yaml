@@ -1,0 +1,4434 @@
+zabbix_export:
+  version: '6.4'
+  template_groups:
+    - uuid: 748ad4d098d447d492bb935c907f652f
+      name: Templates/Databases
+  templates:
+    - uuid: 6b100fb5b01242969324ee31e5015ce7
+      template: 'MSSQL by Agent passive'
+      name: 'MSSQL by Agent passive'
+      description: |
+        This template uses Zabbix Agent to query a local MSSQL Server, using Powershell.
+        
+        1. Add the required helper Files to the Zabbix Agent config. See details in readme.
+        
+        2.  Assign a UserAccount to Zabbix Agent Service.
+        
+        3. Grant User account of local Zabbix Agent the following permissions on SQL Server:
+        
+        GRANT VIEW ANY DEFINITION TO Zabbix
+        GRANT VIEW SERVER STATE TO Zabbix
+        GRANT SELECT ON OBJECT::msdb.dbo.sysjobs TO Zabbix 
+        GRANT SELECT ON OBJECT::msdb.dbo.sysjobservers TO Zabbix 
+        GRANT SELECT ON OBJECT::msdb.dbo.sysjobactivity TO Zabbix 
+        GRANT EXECUTE ON OBJECT::msdb.dbo.agent_datetime TO Zabbix
+        
+        For more information, see MSSQL documentation.
+        
+        4. For named instance set the value of {$MSSQL.INSTANCE} macro as MSSQL$instance_name
+        
+        
+        Known issues:
+        Querying the Statistics Table may result in Dataset larger than 512kb, which is the limit of Zabbix. This may be the cause when using lot's of Tables.
+        
+        
+        This template is based on "MSSQL by ODBC" from Zabbix.
+      groups:
+        - name: Templates/Databases
+      items:
+        - uuid: 0bad79b3c436418392230860f14d752b
+          name: 'MSSQL: Get job status'
+          key: 'db.mssql.get[get_job_status,"{$MSSQL.INSTANCE}"]'
+          delay: 10m
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets sql agent job status.'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: bedcc832ca1842e7b22baa157c1da83e
+          name: 'MSSQL: Get last backup'
+          key: 'db.mssql.get[get_last_backup,"{$MSSQL.INSTANCE}"]'
+          delay: 10m
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets information about backup processes.'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: 3971d2fecc144e8b80ff1919cd63bffa
+          name: 'MSSQL: Get performance counters'
+          key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          delay: 0;m0-59
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets server global status information.'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: b50c9eee5d0443bd8cb9735dc5610e58
+          name: 'MSSQL: Get Access Methods counters'
+          type: DEPENDENT
+          key: mssql.access_methods.raw
+          delay: '0'
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets server information about access methods.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}:Access Methods'')]'
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: 64f13e612c8e4744a5cf8b793df78f85
+          name: 'MSSQL: Auto-param attempts per second'
+          type: DEPENDENT
+          key: mssql.autoparam_attempts_sec.rate
+          delay: '0'
+          history: '0'
+          value_type: FLOAT
+          description: 'Number of auto-parameterization attempts per second. The total should be the sum of the failed, safe, and unsafe auto-parameterizations. Auto-parameterization occurs when an instance of SQL Server tries to parameterize a Transact-SQL request by replacing some literals with parameters to me reuse of the resulting cached execution plan across multiple similar-looking requests possible. Note that auto-parameterizations are also known as simple parameterizations in the newer versions of SQL Server. This counter does not include forced parameterizations.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Auto-Param Attempts/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.sql_statistics.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: 59bc0f54c98541c4884905aea02a5422
+          name: 'MSSQL: Average latch wait time'
+          type: CALCULATED
+          key: mssql.average_latch_wait_time
+          delay: 0;m0-59s3
+          history: 7d
+          value_type: FLOAT
+          units: ms
+          params: |
+            (last(//mssql.average_latch_wait_time_raw) - last(//mssql.average_latch_wait_time_raw,#2)) /
+            (last(//mssql.average_latch_wait_time_base) - last(//mssql.average_latch_wait_time_base,#2) +
+            (last(//mssql.average_latch_wait_time_base) - last(//mssql.average_latch_wait_time_base,#2)=0))
+          description: 'Average latch wait time (in milliseconds) for latch requests that had to wait.'
+          tags:
+            - tag: component
+              value: wait-time
+        - uuid: 9bbc5a7ae1414419a56fbbb40cbdafb3
+          name: 'MSSQL: Average latch wait time base'
+          type: DEPENDENT
+          key: mssql.average_latch_wait_time_base
+          delay: '0'
+          history: 7d
+          description: 'For internal use only.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Average Latch Wait Time Base'')].cntr_value.first()'
+          master_item:
+            key: mssql.latches_info.raw
+          tags:
+            - tag: component
+              value: wait-time
+        - uuid: a22fed17b72e48838433f0bbf31430a5
+          name: 'MSSQL: Average latch wait time raw'
+          type: DEPENDENT
+          key: mssql.average_latch_wait_time_raw
+          delay: '0'
+          history: 7d
+          units: ms
+          description: 'Average latch wait time (in milliseconds) for latch requests that had to wait.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Average Latch Wait Time (ms)'')].cntr_value.first()'
+          master_item:
+            key: mssql.latches_info.raw
+          tags:
+            - tag: component
+              value: wait-time
+        - uuid: 42e703b8c08c4061b3b707004b07e253
+          name: 'MSSQL: Total average wait time'
+          type: CALCULATED
+          key: mssql.average_wait_time
+          delay: 0;m0-59s3
+          history: 7d
+          value_type: FLOAT
+          units: ms
+          params: |
+            (last(//mssql.average_wait_time_raw) - last(//mssql.average_wait_time_raw,#2)) /
+            (last(//mssql.average_wait_time_base) - last(//mssql.average_wait_time_base,#2) +
+            (last(//mssql.average_wait_time_base) - last(//mssql.average_wait_time_base,#2)=0))
+          description: 'The average wait time, in milliseconds, for each lock request that had to wait.'
+          tags:
+            - tag: component
+              value: wait-time
+          triggers:
+            - uuid: 414b3593cc0f4fba95c8bb581c03a70a
+              expression: 'min(/MSSQL by Agent passive/mssql.average_wait_time,5m)>{$MSSQL.AVERAGE_WAIT_TIME.MAX}'
+              name: 'MSSQL: Total average wait time for locks is high'
+              event_name: 'MSSQL: Total average wait time for locks is high (over {$MSSQL.AVERAGE_WAIT_TIME.MAX}ms for 5m)'
+              priority: WARNING
+              description: 'An average wait time longer than 500ms may indicate excessive blocking. This value should generally correlate to ''Lock Waits/sec'' and move up or down with it accordingly.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: f60de688a1a14fb2b7a176a94b0bfba3
+          name: 'MSSQL: Total average wait time base'
+          type: DEPENDENT
+          key: mssql.average_wait_time_base
+          delay: '0'
+          history: 7d
+          description: 'For internal use only.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Average Wait Time Base'')].cntr_value.first()'
+          master_item:
+            key: mssql.locks_info.raw
+          tags:
+            - tag: component
+              value: wait-time
+        - uuid: 8f5d5dd348e947f48f26c18dd419baca
+          name: 'MSSQL: Total average wait time raw'
+          type: DEPENDENT
+          key: mssql.average_wait_time_raw
+          delay: '0'
+          history: 7d
+          units: ms
+          description: 'Average amount of wait time (in milliseconds) for each lock request that resulted in a wait. Information for all locks.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Average Wait Time (ms)'')].cntr_value.first()'
+          master_item:
+            key: mssql.locks_info.raw
+          tags:
+            - tag: component
+              value: wait-time
+        - uuid: faf1d78f81b140eeaab785439499008c
+          name: 'MSSQL: Batch requests per second'
+          type: DEPENDENT
+          key: mssql.batch_requests_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: rps
+          description: 'Number of Transact-SQL command batches received per second. This statistic is affected by all constraints (such as I/O, number of users, cache size, complexity of requests, and so on). High batch requests mean good throughput.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Batch Requests/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.sql_statistics.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: 548729c1f7514f53a911b04208409d8d
+          name: 'MSSQL: Buffer cache hit ratio'
+          type: DEPENDENT
+          key: mssql.buffer_cache_hit_ratio
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: '%'
+          description: 'Indicates the percentage of pages found in the buffer cache without having to read from disk. The ratio is the total number of cache hits divided by the total number of cache lookups over the last few thousand page accesses. After a long period of time, the ratio changes very little. Since reading from the cache is much less expensive than reading from the disk, a higher value is preferred for this item. To increase the buffer cache hit ratio, consider increasing the amount of memory available to SQL Server or using the buffer pool extension feature.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''BufferCacheHitRatio'')].cntr_value.first()'
+          master_item:
+            key: mssql.buffer_manager.raw
+          tags:
+            - tag: component
+              value: cache
+          triggers:
+            - uuid: e8f9010993444911a825965f1407055a
+              expression: 'max(/MSSQL by Agent passive/mssql.buffer_cache_hit_ratio,5m)<{$MSSQL.BUFFER_CACHE_RATIO.MIN.CRIT}'
+              name: 'MSSQL: Percentage of the buffer cache efficiency is low'
+              event_name: 'MSSQL: Percentage of the buffer cache efficiency is low (below {$MSSQL.BUFFER_CACHE_RATIO.MIN.CRIT}% for 5m)'
+              priority: HIGH
+              description: 'Too low buffer cache hit ratio.'
+              tags:
+                - tag: scope
+                  value: performance
+            - uuid: 269c2980e2ce41d09e49a89fb1d452b0
+              expression: 'max(/MSSQL by Agent passive/mssql.buffer_cache_hit_ratio,5m)<{$MSSQL.BUFFER_CACHE_RATIO.MIN.WARN}'
+              name: 'MSSQL: Percentage of the buffer cache efficiency is low'
+              event_name: 'MSSQL: Percentage of the buffer cache efficiency is low (below {$MSSQL.BUFFER_CACHE_RATIO.MIN.WARN}% for 5m)'
+              priority: WARNING
+              description: 'Low buffer cache hit ratio.'
+              dependencies:
+                - name: 'MSSQL: Percentage of the buffer cache efficiency is low'
+                  expression: 'max(/MSSQL by Agent passive/mssql.buffer_cache_hit_ratio,5m)<{$MSSQL.BUFFER_CACHE_RATIO.MIN.CRIT}'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: d9638ee752e0406d9303fc3487b42e52
+          name: 'MSSQL: Get Buffer Manager counters'
+          type: DEPENDENT
+          key: mssql.buffer_manager.raw
+          delay: '0'
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets server information about buffer pool.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}:Buffer Manager'')]'
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: 4ff5fa73aad14daead1a7ac77231fb3b
+          name: 'MSSQL: Cache hit ratio'
+          type: DEPENDENT
+          key: mssql.cache_hit_ratio
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: '%'
+          description: 'Ratio between cache hits and lookups.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''CacheHitRatio'')].cntr_value.first()'
+          master_item:
+            key: mssql.cache_info.raw
+          tags:
+            - tag: component
+              value: cache
+        - uuid: 860c2c0fac764cb1bda58be460b1157c
+          name: 'MSSQL: Get Cache counters'
+          type: DEPENDENT
+          key: mssql.cache_info.raw
+          delay: '0'
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets server information about cache.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}:Plan Cache'' && @.instance_name==''_Total'')]'
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: 2c831fab998e41d585e47311279d87c7
+          name: 'MSSQL: Cache objects in use'
+          type: DEPENDENT
+          key: mssql.cache_objects_in_use
+          delay: '0'
+          history: 7d
+          description: 'Number of cache objects in use.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Cache Objects in use'')].cntr_value.first()'
+          master_item:
+            key: mssql.cache_info.raw
+          tags:
+            - tag: component
+              value: cache
+        - uuid: f8e2f90c462d4f25a461aeb0ebe729fa
+          name: 'MSSQL: Cache object counts'
+          type: DEPENDENT
+          key: mssql.cache_object_counts
+          delay: '0'
+          history: 7d
+          description: 'Number of cache objects in the cache.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Cache Object Counts'')].cntr_value.first()'
+          master_item:
+            key: mssql.cache_info.raw
+          tags:
+            - tag: component
+              value: cache
+        - uuid: b0a76d3ec55946a096cdb45be2fd851c
+          name: 'MSSQL: Cache pages'
+          type: DEPENDENT
+          key: mssql.cache_pages
+          delay: '0'
+          history: 7d
+          description: 'Number of 8-kilobyte (KB) pages used by cache objects.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Cache Pages'')].cntr_value.first()'
+          master_item:
+            key: mssql.cache_info.raw
+          tags:
+            - tag: component
+              value: cache
+            - tag: component
+              value: page
+        - uuid: c4c395b4ede540f288c04f6e03505305
+          name: 'MSSQL: Checkpoint pages per second'
+          type: DEPENDENT
+          key: mssql.checkpoint_pages_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Indicates the number of pages flushed to disk per second by a checkpoint or other operation which required all dirty pages to be flushed.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Checkpoint pages/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.buffer_manager.raw
+          tags:
+            - tag: component
+              value: page
+            - tag: component
+              value: performance
+        - uuid: 6eb4c5d05f6a4d548103f3a58a0d2370
+          name: 'MSSQL: Database pages'
+          type: DEPENDENT
+          key: mssql.database_pages
+          delay: '0'
+          history: 7d
+          description: 'Indicates the number of pages in the buffer pool with database content.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Database pages'')].cntr_value.first()'
+          master_item:
+            key: mssql.buffer_manager.raw
+          tags:
+            - tag: component
+              value: page
+        - uuid: 606e8ee4f20243e3b50e81b3f3299ae7
+          name: 'MSSQL: Total data file size'
+          type: DEPENDENT
+          key: mssql.data_files_size
+          delay: '0'
+          history: 7d
+          units: B
+          description: 'Total size of all data files.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Data File(s) Size (KB)'')].cntr_value.first()'
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          master_item:
+            key: mssql.db_info.raw
+          tags:
+            - tag: component
+              value: application
+        - uuid: 80972ec66d644c82ad6da79bb3e79bab
+          name: 'MSSQL: Get DB counters'
+          type: DEPENDENT
+          key: mssql.db_info.raw
+          delay: '0'
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets summary information about databases.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}:Databases'' && @.instance_name==''_Total'')]'
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: d26370b547ec4e47944e2dd6b02f11cd
+          name: 'MSSQL: Total errors per second'
+          type: DEPENDENT
+          key: mssql.errors_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of errors per second.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Errors/sec'' && @.instance_name==''_Total'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.sql_errors.raw
+          tags:
+            - tag: component
+              value: error
+            - tag: component
+              value: performance
+        - uuid: 7e8bbabed3114c038b9f0b46317d07e6
+          name: 'MSSQL: Failed auto-params per second'
+          type: DEPENDENT
+          key: mssql.failed_autoparams_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of failed auto-parameterization attempts per second. This number should be small. Note that auto-parameterizations are also known as simple parameterizations in the newer versions of SQL Server.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Failed Auto-Params/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.sql_statistics.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: a4cbc40f5d7049be8d110e4c39bc61f6
+          name: 'MSSQL: Forwarded records per second'
+          type: DEPENDENT
+          key: mssql.forwarded_records_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of records per second fetched through forwarded record pointers.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Forwarded Records/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.access_methods.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: c5ee26691f244fc7badc61e34c2e59d1
+          name: 'MSSQL: Free list stalls per second'
+          type: DEPENDENT
+          key: mssql.free_list_stalls_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: rps
+          description: 'Indicates the number of requests per second that had to wait for a free page.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Free list stalls/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.buffer_manager.raw
+          tags:
+            - tag: component
+              value: performance
+          triggers:
+            - uuid: 6e311792919f4a85b7b2ad47bd281446
+              expression: 'min(/MSSQL by Agent passive/mssql.free_list_stalls_sec.rate,5m)>{$MSSQL.FREE_LIST_STALLS.MAX}'
+              name: 'MSSQL: Number of rps waiting for a free page is high'
+              event_name: 'MSSQL: Number of rps waiting for a free page is high (over {$MSSQL.FREE_LIST_STALLS.MAX} for 5m)'
+              priority: WARNING
+              description: 'Some requests have to wait for a free page.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 741d0fa57f8847fcb8ccaf60e1cdedab
+          name: 'MSSQL: Full scans per second'
+          type: DEPENDENT
+          key: mssql.full_scans_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of unrestricted full scans per second. These can be either base-table or full-index scans. Values greater than 1 or 2 indicate that there are table / Index page scans. If that is combined with high CPU, this counter requires further investigation, otherwise, if the full scans are on small tables, it can be ignored.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Full Scans/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.access_methods.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: e4f6df17cf7a48cfb45f52474bdf9137
+          name: 'MSSQL: Get General Statistics counters'
+          type: DEPENDENT
+          key: mssql.general_statistics.raw
+          delay: '0'
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets general statistic information.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}:General Statistics'')]'
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: 775001c59d894869a588b1cfb9b6ce2c
+          name: 'MSSQL: Granted Workspace Memory'
+          type: DEPENDENT
+          key: mssql.granted_workspace_memory
+          delay: '0'
+          history: 7d
+          units: B
+          description: 'Specifies the total amount of memory currently granted to executing processes, such as hash, sort, bulk copy, and index creation operations.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Granted Workspace Memory (KB)'')].cntr_value.first()'
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          master_item:
+            key: mssql.mem_manager.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: 843c9803dbd04528a5c580b6b1c8de3d
+          name: 'MSSQL: Index searches per second'
+          type: DEPENDENT
+          key: mssql.index_searches_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of index searches per second. These are used to start a range scan, reposition a range scan, revalidate a scan point, fetch a single index record, and search down the index to locate where to insert a new row.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Index Searches/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.access_methods.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: b5d81bb40797470a9f5478f5bdc72e9b
+          name: 'MSSQL: Errors per second (Info errors)'
+          type: DEPENDENT
+          key: mssql.info_errors_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of errors per second.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Errors/sec'' && @.instance_name==''Info Errors'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.sql_errors.raw
+          tags:
+            - tag: component
+              value: error
+            - tag: component
+              value: performance
+        - uuid: 6446e8f4d6474ec886fb62a2127837f4
+          name: 'MSSQL: Errors per second (Kill connection errors)'
+          type: DEPENDENT
+          key: mssql.kill_connection_errors_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of errors per second.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Errors/sec'' && @.instance_name==''Kill Connection Errors'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.sql_errors.raw
+          tags:
+            - tag: component
+              value: error
+            - tag: component
+              value: performance
+        - uuid: bbb9451bd0224c43a29a182f403182d8
+          name: 'MSSQL: Get Latches counters'
+          type: DEPENDENT
+          key: mssql.latches_info.raw
+          delay: '0'
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets server information about latches.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}:Latches'')]'
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: 986c6e9e51284601b3a186b746cc3b91
+          name: 'MSSQL: Latch waits per second'
+          type: DEPENDENT
+          key: mssql.latch_waits_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: rps
+          description: 'The number of latch requests that could not be granted immediately. Latches are lightweight means of holding a very transient server resource, such as an address in memory.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Latch Waits/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.latches_info.raw
+          tags:
+            - tag: component
+              value: performance
+            - tag: component
+              value: wait-time
+        - uuid: 2837e5e17ebb4a1fa0e1190cd3897a67
+          name: 'MSSQL: Lazy writes per second'
+          type: DEPENDENT
+          key: mssql.lazy_writes_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Indicates the number of buffers written per second by the buffer manager''s lazy writer. The lazy writer is a system process that flushes out batches of dirty, aged buffers (buffers that contain changes that must be written back to disk before the buffer can be reused for a different page) and makes them available to user processes. The lazy writer eliminates the need to perform frequent checkpoints in order to create available buffers.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Lazy writes/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.buffer_manager.raw
+          tags:
+            - tag: component
+              value: performance
+          triggers:
+            - uuid: 61d7cf1e7a98435eb21ef6b5c04d4766
+              expression: 'min(/MSSQL by Agent passive/mssql.lazy_writes_sec.rate,5m)>{$MSSQL.LAZY_WRITES.MAX}'
+              name: 'MSSQL: Number of buffers written per second by the lazy writer is high'
+              event_name: 'MSSQL: Number of buffers written per second by the lazy writer is high (over {$MSSQL.LAZY_WRITES.MAX} for 5m)'
+              priority: WARNING
+              description: 'The number of buffers written per second by the buffer manager''s lazy writer exceeds the threshold.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 12e448586e404c4cb233a6ac35a62d43
+          name: 'MSSQL: Get Locks counters'
+          type: DEPENDENT
+          key: mssql.locks_info.raw
+          delay: '0'
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets server information about locks.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}:Locks'' && @.instance_name==''_Total'')]'
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: e6364e1183394ccdb48dbc69b5635b20
+          name: 'MSSQL: Total lock requests per second'
+          type: DEPENDENT
+          key: mssql.lock_requests_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: rps
+          description: 'Number of new locks and lock conversions per second requested from the lock manager.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Lock Requests/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.locks_info.raw
+          tags:
+            - tag: component
+              value: lock
+            - tag: component
+              value: performance
+          triggers:
+            - uuid: b88858803a7a42768d851ee37b82de8b
+              expression: 'min(/MSSQL by Agent passive/mssql.lock_requests_sec.rate,5m)>{$MSSQL.LOCK_REQUESTS.MAX}'
+              name: 'MSSQL: Total number of locks per second is high'
+              event_name: 'MSSQL: Total number of locks per second is high (over {$MSSQL.LOCK_REQUESTS.MAX} for 5m)'
+              priority: WARNING
+              description: 'Number of new locks and lock conversions per second requested from the lock manager is high.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 37615e2287a3419f9f562fb595e81ca3
+          name: 'MSSQL: Total lock requests per second that timed out'
+          type: DEPENDENT
+          key: mssql.lock_timeouts_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: rps
+          description: 'Number of timed out lock requests per second, including requests for NOWAIT locks.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Lock Timeouts/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.locks_info.raw
+          tags:
+            - tag: component
+              value: lock
+            - tag: component
+              value: performance
+          triggers:
+            - uuid: 5b6e8446866f4bbca1bd9e2019f37108
+              expression: 'min(/MSSQL by Agent passive/mssql.lock_timeouts_sec.rate,5m)>{$MSSQL.LOCK_TIMEOUTS.MAX}'
+              name: 'MSSQL: Total lock requests per second that timed out is high'
+              event_name: 'MSSQL: Total lock requests per second that timed out is high (over {$MSSQL.LOCK_TIMEOUTS.MAX} for 5m)'
+              priority: WARNING
+              description: 'The total number of timed out lock requests per second, including requests for NOWAIT locks, is high.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 0580c814a9064edaa87e09012001dbf8
+          name: 'MSSQL: Total lock requests per second that required waiting'
+          type: DEPENDENT
+          key: mssql.lock_waits_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: rps
+          description: 'Number of lock requests per second that required the caller to wait.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Lock Waits/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.locks_info.raw
+          tags:
+            - tag: component
+              value: lock
+            - tag: component
+              value: performance
+          triggers:
+            - uuid: b713cc8dff134957af30abc75d17b43f
+              expression: 'min(/MSSQL by Agent passive/mssql.lock_waits_sec.rate,5m)>0'
+              name: 'MSSQL: Some blocking is occurring for 5m'
+              priority: AVERAGE
+              description: 'Values greater than zero indicate at least some blocking is occurring, while a value of zero can quickly eliminate blocking as a potential root-cause problem.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 38fa932619d84d59b7cc6151d8830b59
+          name: 'MSSQL: Lock wait time'
+          type: DEPENDENT
+          key: mssql.lock_wait_time
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: ms
+          description: 'Average of total wait time (in milliseconds) for locks in the last second.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Lock Wait Time (ms)'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.locks_info.raw
+          tags:
+            - tag: component
+              value: lock
+        - uuid: 046c4bd4b24749fd9d3915ef78638e08
+          name: 'MSSQL: Logins per second'
+          type: DEPENDENT
+          key: mssql.logins_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Total number of logins started per second. This does not include pooled connections. Any value over 2 may indicate insufficient connection pooling.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Logins/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.general_statistics.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: 456d1b235ed844b6863d7c8f8ada3240
+          name: 'MSSQL: Logouts per second'
+          type: DEPENDENT
+          key: mssql.logouts_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Total number of logout operations started per second. Any value over 2 may indicate insufficient connection pooling.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Logouts/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.general_statistics.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: 1e46a5b67c60417e913e6601ecbbc80d
+          name: 'MSSQL: Total log file size'
+          type: DEPENDENT
+          key: mssql.log_files_size
+          delay: '0'
+          history: 7d
+          units: B
+          description: 'Total size of all the transaction log files.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Log File(s) Size (KB)'')].cntr_value.first()'
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          master_item:
+            key: mssql.db_info.raw
+          tags:
+            - tag: component
+              value: log
+        - uuid: f0a51bd76d164dfdab3e68e768df44bb
+          name: 'MSSQL: Total log file used size'
+          type: DEPENDENT
+          key: mssql.log_files_used_size
+          delay: '0'
+          history: 7d
+          units: B
+          description: 'The cumulative used size of all the log files in the database.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Log File(s) Used Size (KB)'')].cntr_value.first()'
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          master_item:
+            key: mssql.db_info.raw
+          tags:
+            - tag: component
+              value: log
+        - uuid: c347fecbb06140929c5bb64539c82782
+          name: 'MSSQL: Maximum workspace memory'
+          type: DEPENDENT
+          key: mssql.maximum_workspace_memory
+          delay: '0'
+          history: 7d
+          units: B
+          description: 'Indicates the maximum amount of memory available for executing processes, such as hash, sort, bulk copy, and index creation operations.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Maximum Workspace Memory (KB)'')].cntr_value.first()'
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          master_item:
+            key: mssql.mem_manager.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: 1eec508cc2f949c98c3b9655871bc04b
+          name: 'MSSQL: Memory grants outstanding'
+          type: DEPENDENT
+          key: mssql.memory_grants_outstanding
+          delay: '0'
+          history: 7d
+          description: 'Specifies the total number of processes that have successfully acquired a workspace memory grant.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Memory Grants Outstanding'')].cntr_value.first()'
+          master_item:
+            key: mssql.mem_manager.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: a57d6eb22f184e779f1b1ced626b878a
+          name: 'MSSQL: Memory grants pending'
+          type: DEPENDENT
+          key: mssql.memory_grants_pending
+          delay: '0'
+          history: 7d
+          description: 'Specifies the total number of processes waiting for a workspace memory grant.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Memory Grants Pending'')].cntr_value.first()'
+          master_item:
+            key: mssql.mem_manager.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: 3b33e9ef3da747938d6c6ac8cc6d54f2
+          name: 'MSSQL: Get Memory counters'
+          type: DEPENDENT
+          key: mssql.mem_manager.raw
+          delay: '0'
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets memory information.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}:Memory Manager'')]'
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: 44cabad784794aa386c235c53cdd7a07
+          name: 'MSSQL: Total lock requests per second that have deadlocks'
+          type: DEPENDENT
+          key: mssql.number_deadlocks_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: rps
+          description: 'Number of lock requests per second that resulted in a deadlock.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Number of Deadlocks/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.locks_info.raw
+          tags:
+            - tag: component
+              value: deadlock
+            - tag: component
+              value: performance
+          triggers:
+            - uuid: a0eb615d656d48668e80eb407ceda9c1
+              expression: 'min(/MSSQL by Agent passive/mssql.number_deadlocks_sec.rate,5m)>{$MSSQL.DEADLOCKS.MAX}'
+              name: 'MSSQL: Number of deadlock is high'
+              event_name: 'MSSQL: Number of deadlock is high (over {$MSSQL.DEADLOCKS.MAX} for 5m)'
+              priority: AVERAGE
+              description: 'Too many deadlocks are occurring currently.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 55f44d34dc38451e87f682ce73ac0e13
+          name: 'MSSQL: Errors per second (DB offline errors)'
+          type: DEPENDENT
+          key: mssql.offline_errors_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of errors per second.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Errors/sec'' && @.instance_name==''DB Offline Errors'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.sql_errors.raw
+          tags:
+            - tag: component
+              value: error
+            - tag: component
+              value: performance
+        - uuid: 645e10a35f1f44b6a285756b7556ff42
+          name: 'MSSQL: Page life expectancy'
+          type: DEPENDENT
+          key: mssql.page_life_expectancy
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: s
+          description: 'Indicates the number of seconds a page will stay in the buffer pool without references.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Page life expectancy'')].cntr_value.first()'
+          master_item:
+            key: mssql.buffer_manager.raw
+          tags:
+            - tag: component
+              value: page
+          triggers:
+            - uuid: caed498386ca4ae390d366ec55caab62
+              expression: 'max(/MSSQL by Agent passive/mssql.page_life_expectancy,15m)<{$MSSQL.PAGE_LIFE_EXPECTANCY.MIN}'
+              name: 'MSSQL: Page life expectancy is low'
+              event_name: 'MSSQL: Page life expectancy is low (less {$MSSQL.PAGE_LIFE_EXPECTANCY.MIN}min for 15m)'
+              priority: HIGH
+              description: 'The page stays in the buffer pool without references of less time than the threshold value.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 833c861b0a7a403e8a2aab38693ef3a7
+          name: 'MSSQL: Page lookups per second'
+          type: DEPENDENT
+          key: mssql.page_lookups_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: rps
+          description: 'Indicates the number of requests per second to find a page in the buffer pool.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Page lookups/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.buffer_manager.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: 7fd00482ab42474fbade28500e49ffa1
+          name: 'MSSQL: Page reads per second'
+          type: DEPENDENT
+          key: mssql.page_reads_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Indicates the number of physical database page reads that are issued per second. This statistic displays the total number of physical page reads across all databases. Because physical I/O is expensive, you may be able to minimize the cost, either by using a larger data cache, intelligent indexes, and more efficient queries, or by changing the database design.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Page reads/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.buffer_manager.raw
+          tags:
+            - tag: component
+              value: page
+            - tag: component
+              value: performance
+          triggers:
+            - uuid: 5b93c1d29eaa41bc8c4f5d91641d451a
+              expression: 'min(/MSSQL by Agent passive/mssql.page_reads_sec.rate,5m)>{$MSSQL.PAGE_READS.MAX}'
+              name: 'MSSQL: Number of physical database page reads per second is high'
+              event_name: 'MSSQL: Number of physical database page reads per second is high (over {$MSSQL.PAGE_READS.MAX} for 5m)'
+              priority: WARNING
+              description: 'The physical database page reads are issued too frequently.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 744f0ecf1d134f8e8b211b20a8b1c067
+          name: 'MSSQL: Page splits per second'
+          type: DEPENDENT
+          key: mssql.page_splits_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of page splits per second that occur as the result of overflowing index pages.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Page Splits/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.access_methods.raw
+          tags:
+            - tag: component
+              value: page
+            - tag: component
+              value: performance
+        - uuid: fd99a1bb868244d2b3920712b44b3afe
+          name: 'MSSQL: Page writes per second'
+          type: DEPENDENT
+          key: mssql.page_writes_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Indicates the number of physical database page writes that are issued per second.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Page writes/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.buffer_manager.raw
+          tags:
+            - tag: component
+              value: page
+            - tag: component
+              value: performance
+          triggers:
+            - uuid: 889e5ddd0cfe4e1f87d172a5611e5ee2
+              expression: 'min(/MSSQL by Agent passive/mssql.page_writes_sec.rate,5m)>{$MSSQL.PAGE_WRITES.MAX}'
+              name: 'MSSQL: Number of physical database page writes per second is high'
+              event_name: 'MSSQL: Number of physical database page writes per second is high (over {$MSSQL.PAGE_WRITES.MAX} for 5m)'
+              priority: WARNING
+              description: 'The physical database page writes are issued too frequently.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 52e1bf44a28249bea254e27228e60e4a
+          name: 'MSSQL: Percent of Adhoc queries running'
+          type: CALCULATED
+          key: mssql.percent_of_adhoc_queries
+          delay: 0;m0-59s3
+          history: 7d
+          value_type: FLOAT
+          units: '%'
+          params: |
+            last(//mssql.sql_compilations_sec.rate) * 100 /
+            (last(//mssql.batch_requests_sec.rate) + (last(//mssql.batch_requests_sec.rate)=0))
+          description: 'The ratio of SQL compilations per second to Batch requests per second in percentage.'
+          tags:
+            - tag: component
+              value: application
+          triggers:
+            - uuid: 03a3c22548cb426488ac03ba7b3b39e0
+              expression: 'min(/MSSQL by Agent passive/mssql.percent_of_adhoc_queries,15m) > {$MSSQL.PERCENT_COMPILATIONS.MAX}'
+              name: 'MSSQL: Percent of adhoc queries running is high'
+              event_name: 'MSSQL: Percent of adhoc queries running is over {$MSSQL.PERCENT_COMPILATIONS.MAX}% for 15m'
+              priority: WARNING
+              description: 'The lower this value is the better. High values often indicate excessive adhoc querying and should be as low as possible. If excessive adhoc querying is happening, try rewriting the queries as procedures or invoke the queries using sp_executeSQL. When rewriting isn''t possible, consider using a plan guide or setting the database to parameterization forced mode.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: d4dd075d7ec344cb83084607372c6c4c
+          name: 'MSSQL: Percent of Recompiled Transact-SQL Objects'
+          type: CALCULATED
+          key: mssql.percent_recompilations_to_compilations
+          delay: 0;m0-59s3
+          history: 7d
+          value_type: FLOAT
+          units: '%'
+          params: |
+            last(//mssql.sql_recompilations_sec.rate) * 100 /
+            (last(//mssql.sql_compilations_sec.rate) + (last(//mssql.sql_compilations_sec.rate)=0))
+          description: 'The ratio of SQL re-compilations per second to SQL compilations per second in percentage.'
+          tags:
+            - tag: component
+              value: application
+          triggers:
+            - uuid: 71ad253b65634d00a94e5ab7e17bb544
+              expression: 'min(/MSSQL by Agent passive/mssql.percent_recompilations_to_compilations,15m) > {$MSSQL.PERCENT_RECOMPILATIONS.MAX}'
+              name: 'MSSQL: Percent of times statement recompiles is high'
+              event_name: 'MSSQL: Percent of times statement recompiles is over {$MSSQL.PERCENT_RECOMPILATIONS.MAX}% for 15m'
+              priority: WARNING
+              description: 'This number should be at or near zero, since recompiles can cause deadlocks and exclusive compile locks. This counter''s value should follow in proportion to "Batch Requests/sec" and "SQL Compilations/sec".'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: fbb47d64b8d7449abd7f29b9c37eb5e1
+          name: 'MSSQL: Number of blocked processes'
+          type: DEPENDENT
+          key: mssql.processes_blocked
+          delay: '0'
+          history: 7d
+          description: 'Number of currently blocked processes.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Processes blocked'')].cntr_value.first()'
+          master_item:
+            key: mssql.general_statistics.raw
+          tags:
+            - tag: component
+              value: application
+        - uuid: 1ea551dd35b047548c09e17fac50f204
+          name: 'MSSQL: Read-ahead pages per second'
+          type: DEPENDENT
+          key: mssql.readahead_pages_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Indicates the number of pages read per second in anticipation of use.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Readahead pages/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.buffer_manager.raw
+          tags:
+            - tag: component
+              value: page
+            - tag: component
+              value: performance
+        - uuid: 81841ca20ea7461b8c3a425af4947d0b
+          name: 'MSSQL: Safe auto-params per second'
+          type: DEPENDENT
+          key: mssql.safe_autoparams_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of safe auto-parameterization attempts per second. Safe refers to a determination that a cached execution plan can be shared between different similar-looking Transact-SQL statements. SQL Server makes many auto-parameterization attempts some of which turn out to be safe and others fail. Note that auto-parameterizations are also known as simple parameterizations in the newer versions of SQL Server. This does not include forced parameterizations.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Safe Auto-Params/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.sql_statistics.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: f4176d8055454f2a93fb51dc167e52b5
+          name: 'MSSQL: Full scans to Index searches ratio'
+          type: CALCULATED
+          key: mssql.scan_to_search
+          delay: 0;m0-59s3
+          history: 7d
+          value_type: FLOAT
+          params: 'last(//mssql.full_scans_sec.rate) / (last(//mssql.index_searches_sec.rate) + (last(//mssql.index_searches_sec.rate)=0))'
+          description: 'The ratio of Full scans per second to Index searches per second. The threshold recommendation is strictly for OLTP workloads.'
+          tags:
+            - tag: application
+              value: database
+            - tag: component
+              value: application
+            - tag: target
+              value: wwsmax
+          triggers:
+            - uuid: 725fe9861383458280547e0aec6266f8
+              expression: 'min(/MSSQL by Agent passive/mssql.scan_to_search,15m) > 0.001'
+              name: 'MSSQL: Number of index and table scans exceeds index searches in the last 15m'
+              priority: WARNING
+              description: 'Index searches are preferable to index and table scans. For OLTP applications, optimize for more index searches and less scans (preferably, 1 full scan for every 1000 index searches). Index and table scans are expensive I/O operations.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: ad2a6f58745144828efa08de96925afa
+          name: 'MSSQL: SQL compilations per second'
+          type: DEPENDENT
+          key: mssql.sql_compilations_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of SQL compilations per second. Indicates the number of times the compile code path is entered. Includes runs caused by statement-level recompilations in SQL Server. After SQL Server user activity is stable, this value reaches a steady state.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''SQL Compilations/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.sql_statistics.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: 4d4d1fed59124b368fca62983aa1bea3
+          name: 'MSSQL: Get SQL Errors counters'
+          type: DEPENDENT
+          key: mssql.sql_errors.raw
+          delay: '0'
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets SQL errors information.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}:SQL Errors'')]'
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: 3e657b16d9354190b1782fcdcfa907a6
+          name: 'MSSQL: SQL re-compilations per second'
+          type: DEPENDENT
+          key: mssql.sql_recompilations_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of statement recompiles per second. Counts the number of times statement recompiles are triggered. Generally, you want the recompiles to be low.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''SQL Re-Compilations/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.sql_statistics.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: ceb3c537e8bc4603ac2b076a596f8b06
+          name: 'MSSQL: Get SQL Statistics counters'
+          type: DEPENDENT
+          key: mssql.sql_statistics.raw
+          delay: '0'
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'The item gets SQL statistic information.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}:SQL Statistics'')]'
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: f3d6ea5a5981476fb9ef58657813efa9
+          name: 'MSSQL: Table lock escalations per second'
+          type: DEPENDENT
+          key: mssql.table_lock_escalations.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of times locks on a table were escalated to the TABLE or HoBT granularity.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Table Lock Escalations/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.access_methods.raw
+          tags:
+            - tag: component
+              value: lock
+            - tag: component
+              value: performance
+        - uuid: 29aa940ea0454d19a0cf09fbb151dd76
+          name: 'MSSQL: Target pages'
+          type: DEPENDENT
+          key: mssql.target_pages
+          delay: '0'
+          history: 7d
+          description: 'The optimal number of pages in the buffer pool.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Target pages'')].cntr_value.first()'
+          master_item:
+            key: mssql.buffer_manager.raw
+          tags:
+            - tag: component
+              value: page
+        - uuid: 66d940b2ad4742a79bb72ee53ddbd76f
+          name: 'MSSQL: Target server memory'
+          type: DEPENDENT
+          key: mssql.target_server_memory
+          delay: '0'
+          history: 7d
+          units: B
+          description: 'Indicates the ideal amount of memory the server can consume.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Target Server Memory (KB)'')].cntr_value.first()'
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          master_item:
+            key: mssql.mem_manager.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: feb8771fb34c49d4864f2270e7f64e5a
+          name: 'MSSQL: Total latch wait Time'
+          type: DEPENDENT
+          key: mssql.total_latch_wait_time
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: ms
+          description: 'Total latch wait time (in milliseconds) for latch requests in the last second. This value should stay stable compared to the number of latch waits per second.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Total Latch Wait Time (ms)'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.latches_info.raw
+          tags:
+            - tag: component
+              value: wait-time
+        - uuid: ba421651e56147ef882e31b97d9eddaf
+          name: 'MSSQL: Total server memory'
+          type: DEPENDENT
+          key: mssql.total_server_memory
+          delay: '0'
+          history: 7d
+          units: B
+          description: 'Specifies the amount of memory the server has committed using the memory manager.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Total Server Memory (KB)'')].cntr_value.first()'
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          master_item:
+            key: mssql.mem_manager.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: c50ab4b080514a12a379c11a461846f3
+          name: 'MSSQL: Total transactions number'
+          type: DEPENDENT
+          key: mssql.transactions
+          delay: '0'
+          history: 7d
+          description: 'The number of currently active transactions of all types.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}:Transactions'' && @.counter_name==''Transactions'')].cntr_value.first()'
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: transaction
+        - uuid: 8dc7965746ee4d299733746b3467ac07
+          name: 'MSSQL: Total transactions per second'
+          type: DEPENDENT
+          key: mssql.transactions_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Total number of transactions started for all databases per second.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Transactions/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.db_info.raw
+          tags:
+            - tag: component
+              value: performance
+            - tag: component
+              value: transaction
+        - uuid: 2438449d77574074ab3aa9a9b9bf3c73
+          name: 'MSSQL: Unsafe auto-params per second'
+          type: DEPENDENT
+          key: mssql.unsafe_autoparams_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of unsafe auto-parameterization attempts per second. For example, the query has some characteristics that prevent the cached plan from being shared. These are designated as unsafe. This does not count the number of forced parameterizations.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Unsafe Auto-Params/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.sql_statistics.raw
+          tags:
+            - tag: component
+              value: performance
+        - uuid: 8cb0f92cd12e4694965c483db035b3b6
+          name: 'MSSQL: Uptime'
+          type: DEPENDENT
+          key: mssql.uptime
+          delay: '0'
+          history: 2w
+          trends: '0'
+          units: uptime
+          description: 'MS SQL Server uptime in ''N days, hh:mm:ss'' format.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}'' && @.counter_name==''Uptime'')].cntr_value.first()'
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: application
+        - uuid: a3879f74e80f4f3cb3edfa3bf44220f9
+          name: 'MSSQL: Number users connected'
+          type: DEPENDENT
+          key: mssql.user_connections
+          delay: '0'
+          history: 7d
+          description: 'Number of users connected to MS SQL Server.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''User Connections'')].cntr_value.first()'
+          master_item:
+            key: mssql.general_statistics.raw
+          tags:
+            - tag: component
+              value: application
+        - uuid: 0b20adefcf48433299b5c89ebc0e8e06
+          name: 'MSSQL: Errors per second (User errors)'
+          type: DEPENDENT
+          key: mssql.user_errors_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of errors per second.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Errors/sec'' && @.instance_name==''User Errors'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.sql_errors.raw
+          tags:
+            - tag: component
+              value: error
+            - tag: component
+              value: performance
+        - uuid: 3519337f3fc846809d27be9165e42f89
+          name: 'MSSQL: Version'
+          type: DEPENDENT
+          key: mssql.version
+          delay: '0'
+          history: 2w
+          trends: '0'
+          value_type: CHAR
+          description: 'MS SQL Server version.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.object_name==''{$MSSQL.INSTANCE}'' && @.counter_name==''Version'')].instance_name.first()'
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+          master_item:
+            key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+          tags:
+            - tag: component
+              value: application
+          triggers:
+            - uuid: 1ef0d02040794ca3a00b4718d0a3f72d
+              expression: 'last(/MSSQL by Agent passive/mssql.version,#1)<>last(/MSSQL by Agent passive/mssql.version,#2) and length(last(/MSSQL by Agent passive/mssql.version))>0'
+              name: 'MSSQL: Version has changed'
+              event_name: 'MSSQL: Version has changed (new version value received: {ITEM.VALUE})'
+              priority: INFO
+              description: 'MSSQL version has changed. Acknowledge to close the problem manually.'
+              manual_close: 'YES'
+              tags:
+                - tag: scope
+                  value: notice
+        - uuid: 126a225e901f4fd4babfe5ebd25568a0
+          name: 'MSSQL: Work files created per second'
+          type: DEPENDENT
+          key: mssql.workfiles_created_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of work files created per second. For example, work files can be used to store temporary results for hash joins and hash aggregates.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Workfiles Created/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.access_methods.raw
+          tags:
+            - tag: component
+              value: performance
+          triggers:
+            - uuid: 49c5d98af1f84c5db8487de364fc2273
+              expression: 'min(/MSSQL by Agent passive/mssql.workfiles_created_sec.rate,5m)>{$MSSQL.WORK_FILES.MAX}'
+              name: 'MSSQL: Number of work files created per second is high'
+              event_name: 'MSSQL: Number of work files created per second is high (over {$MSSQL.WORK_FILES.MAX} for 5m)'
+              priority: AVERAGE
+              description: 'Too many work files created per second to store temporary results for hash joins and hash aggregates.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: f45a04b48ff04217b86cca250c020e90
+          name: 'MSSQL: Work tables created per second'
+          type: DEPENDENT
+          key: mssql.worktables_created_sec.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Number of work tables created per second. For example, work tables can be used to store temporary results for query spool, lob variables, XML variables, and cursors.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''Worktables Created/sec'')].cntr_value.first()'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: mssql.access_methods.raw
+          tags:
+            - tag: component
+              value: performance
+          triggers:
+            - uuid: dbc05ac823e042518261e3cd5ba63a0f
+              expression: 'min(/MSSQL by Agent passive/mssql.worktables_created_sec.rate,5m)>{$MSSQL.WORK_TABLES.MAX}'
+              name: 'MSSQL: Number of work tables created per second is high'
+              event_name: 'MSSQL: Number of work tables created per second is high (over {$MSSQL.WORK_TABLES.MAX} for 5m)'
+              priority: AVERAGE
+              description: 'Too many work tables created per second to store temporary results for query spool, lob variables, XML variables, and cursors.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: c8d243495b234f39863a9d88054d597c
+          name: 'MSSQL: Worktables from cache ratio'
+          type: DEPENDENT
+          key: mssql.worktables_from_cache_ratio
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: '%'
+          description: 'Percentage of work tables created where the initial two pages of the work table were not allocated but were immediately available from the work table cache.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$[?(@.counter_name==''WorktablesFromCacheRatio'')].cntr_value.first()'
+          master_item:
+            key: mssql.access_methods.raw
+          tags:
+            - tag: component
+              value: cache
+          triggers:
+            - uuid: 2eb00c4e5ecd47d28ef03b6c1fde2713
+              expression: 'max(/MSSQL by Agent passive/mssql.worktables_from_cache_ratio,5m)<{$MSSQL.WORKTABLES_FROM_CACHE_RATIO.MIN.CRIT}'
+              name: 'MSSQL: Percentage of work tables available from the work table cache is low'
+              event_name: 'MSSQL: Percentage of work tables available from the work table cache is low (below {$MSSQL.WORKTABLES_FROM_CACHE_RATIO.MIN.CRIT}% for 5m)'
+              priority: HIGH
+              description: 'A value less than 90% may indicate insufficient memory, since execution plans are being dropped, or on 32-bit systems, may indicate the need for an upgrade to a 64-bit system'
+              tags:
+                - tag: scope
+                  value: performance
+      discovery_rules:
+        - uuid: b6a134917d694b6389179ba474c61bd4
+          name: 'Availability groups discovery'
+          key: 'db.mssql.get[availability_groups,"{$MSSQL.INSTANCE}"]'
+          delay: 1h
+          description: 'Discovery of the existing availability groups.'
+          item_prototypes:
+            - uuid: c0a82d8833944728b97c374b68c43d67
+              name: 'MSSQL AG ''{#GROUP_NAME}'': Get replica states'
+              key: 'db.mssql.get2[replica_states,"{$MSSQL.INSTANCE}","{#GROUP_NAME}"]'
+              history: '0'
+              trends: '0'
+              value_type: TEXT
+              description: 'Getting replica states - name, primary and secondary health, synchronization health.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.first()
+                  error_handler: DISCARD_VALUE
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: raw
+            - uuid: 3e463923b8f3405da178542917f5e30a
+              name: 'MSSQL AG ''{#GROUP_NAME}'': Primary replica recovery health'
+              type: DEPENDENT
+              key: 'mssql.primary_recovery_health["{#GROUP_NAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Indicates the recovery health of the primary replica:
+                0 = In progress
+                1 = Online
+                2 = Unavailable
+              valuemap:
+                name: 'MSSQL AG Recovery health'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.primary_recovery_health
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get2[replica_states,"{$MSSQL.INSTANCE}","{#GROUP_NAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: availability-group
+              trigger_prototypes:
+                - uuid: 91acaa911bc04dfdb8263887c1ead252
+                  expression: 'last(/MSSQL by Agent passive/mssql.primary_recovery_health["{#GROUP_NAME}"])=0'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'': Primary replica recovery health in progress'
+                  priority: WARNING
+                  description: 'The primary replica is in the synchronization process.'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: scope
+                      value: notice
+            - uuid: afa7cc6360fb4c35814ae65897e0d3ff
+              name: 'MSSQL AG ''{#GROUP_NAME}'': Primary replica name'
+              type: DEPENDENT
+              key: 'mssql.primary_replica["{#GROUP_NAME}"]'
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              description: 'Name of the server instance that is hosting the current primary replica.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.primary_replica
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 3h
+              master_item:
+                key: 'db.mssql.get2[replica_states,"{$MSSQL.INSTANCE}","{#GROUP_NAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: availability-group
+            - uuid: 4b8bd592f5a34a59b97760a20f7901da
+              name: 'MSSQL AG ''{#GROUP_NAME}'': Secondary replica recovery health'
+              type: DEPENDENT
+              key: 'mssql.secondary_recovery_health["{#GROUP_NAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Indicates the recovery health of a secondary replica:
+                0 = In progress
+                1 = Online
+                2 = Unavailable
+              valuemap:
+                name: 'MSSQL AG Recovery health'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.secondary_recovery_health
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get2[replica_states,"{$MSSQL.INSTANCE}","{#GROUP_NAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: availability-group
+              trigger_prototypes:
+                - uuid: c188408eb8dc4da08ff93df734940d10
+                  expression: 'last(/MSSQL by Agent passive/mssql.secondary_recovery_health["{#GROUP_NAME}"])=0'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'': Secondary replica recovery health in progress'
+                  priority: WARNING
+                  description: 'The secondary replica is in the synchronization process.'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: scope
+                      value: notice
+            - uuid: cbd925c481164309895c8635fc8618c1
+              name: 'MSSQL AG ''{#GROUP_NAME}'': Synchronization health'
+              type: DEPENDENT
+              key: 'mssql.synchronization_health["{#GROUP_NAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Reflects a rollup of the synchronization_health of all availability replicas in the availability group:
+                0: Not healthy. None of the availability replicas have a healthy synchronization.
+                1: Partially healthy. The synchronization of some, but not all, availability replicas is healthy.
+                2: Healthy. The synchronization of every availability replica is healthy.
+              valuemap:
+                name: 'MSSQL AG Synchronization health'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.synchronization_health
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get2[replica_states,"{$MSSQL.INSTANCE}","{#GROUP_NAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: availability-group
+              trigger_prototypes:
+                - uuid: 50df31f909bc44188c5a300b6ea79d66
+                  expression: 'last(/MSSQL by Agent passive/mssql.synchronization_health["{#GROUP_NAME}"])=0'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'': All replicas unhealthy'
+                  priority: DISASTER
+                  description: 'None of the availability replicas have a healthy synchronization.'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: scope
+                      value: availability
+                - uuid: 8a9d2bb041e94f608021304f0744fff7
+                  expression: 'last(/MSSQL by Agent passive/mssql.synchronization_health["{#GROUP_NAME}"])=1'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'': Some replicas unhealthy'
+                  priority: HIGH
+                  description: 'The synchronization health of some, but not all, availability replicas is healthy.'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: scope
+                      value: availability
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+        - uuid: a1a6d841b73a4706bc1f5446c5c65d6d
+          name: 'Database discovery'
+          key: 'db.mssql.get[dbname,"{$MSSQL.INSTANCE}"]'
+          delay: 1h
+          filter:
+            evaltype: AND
+            conditions:
+              - macro: '{#DBNAME}'
+                value: '{$MSSQL.DBNAME.MATCHES}'
+                formulaid: A
+              - macro: '{#DBNAME}'
+                value: '{$MSSQL.DBNAME.NOT_MATCHES}'
+                operator: NOT_MATCHES_REGEX
+                formulaid: B
+          description: 'Scanning databases in DBMS.'
+          item_prototypes:
+            - uuid: 697434909d534f76ab84720aa32953f5
+              name: 'MSSQL DB ''{#DBNAME}'': Last diff backup duration'
+              type: DEPENDENT
+              key: 'mssql.backup.diff.duration["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              units: s
+              description: 'Duration of the last differential backup.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.type==''I'')].duration.first()'
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+              master_item:
+                key: 'mssql.backup.raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: 147d94002ea14b83875b06aa84562fa0
+              name: 'MSSQL DB ''{#DBNAME}'': Last diff backup (time ago)'
+              type: DEPENDENT
+              key: 'mssql.backup.diff["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              units: s
+              description: 'The amount of time since the last differential backup.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.type==''I'')].timesincelastbackup.first()'
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+              master_item:
+                key: 'mssql.backup.raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: 605bbb1f5b8f4df5a183557d7b3ec0f3
+                  expression: 'last(/MSSQL by Agent passive/mssql.backup.diff["{#DBNAME}"])>{$MSSQL.BACKUP_DIFF.CRIT:"{#DBNAME}"}'
+                  name: 'MSSQL DB ''{#DBNAME}'': Diff backup is old'
+                  event_name: 'MSSQL DB ''{#DBNAME}'': Diff backup older than {$MSSQL.BACKUP_DIFF.CRIT:"{#DBNAME}"}'
+                  opdata: 'Time since last backup: {ITEM.LASTVALUE1}'
+                  priority: HIGH
+                  description: 'The differential backup has not been executed for a long time.'
+                  dependencies:
+                    - name: 'MSSQL DB ''{#DBNAME}'': State is {ITEM.VALUE}'
+                      expression: 'last(/MSSQL by Agent passive/mssql.db.state["{#DBNAME}"])>1'
+                  tags:
+                    - tag: database
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+                - uuid: 8a8ba4a266ef48aa86867d99a77c3ca9
+                  expression: 'last(/MSSQL by Agent passive/mssql.backup.diff["{#DBNAME}"])>{$MSSQL.BACKUP_DIFF.WARN:"{#DBNAME}"}'
+                  name: 'MSSQL DB ''{#DBNAME}'': Diff backup is old'
+                  event_name: 'MSSQL DB ''{#DBNAME}'': Diff backup older than {$MSSQL.BACKUP_DIFF.WARN:"{#DBNAME}"}'
+                  opdata: 'Time since last backup: {ITEM.LASTVALUE1}'
+                  priority: WARNING
+                  description: 'The differential backup has not been executed for a long time.'
+                  dependencies:
+                    - name: 'MSSQL DB ''{#DBNAME}'': Diff backup is old'
+                      expression: 'last(/MSSQL by Agent passive/mssql.backup.diff["{#DBNAME}"])>{$MSSQL.BACKUP_DIFF.CRIT:"{#DBNAME}"}'
+                    - name: 'MSSQL DB ''{#DBNAME}'': State is {ITEM.VALUE}'
+                      expression: 'last(/MSSQL by Agent passive/mssql.db.state["{#DBNAME}"])>1'
+                  tags:
+                    - tag: database
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+            - uuid: 160445981c594c21a4fbc57b90c054bf
+              name: 'MSSQL DB ''{#DBNAME}'': Last full backup duration'
+              type: DEPENDENT
+              key: 'mssql.backup.full.duration["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              units: s
+              description: 'Duration of the last full backup.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.type==''D'')].duration.first()'
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+              master_item:
+                key: 'mssql.backup.raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: 4c1949c7c52f46bdb405b633b9a98f0e
+              name: 'MSSQL DB ''{#DBNAME}'': Last full backup (time ago)'
+              type: DEPENDENT
+              key: 'mssql.backup.full["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              units: s
+              description: 'The amount of time since the last full backup.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.type==''D'')].timesincelastbackup.first()'
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+              master_item:
+                key: 'mssql.backup.raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: 1c386f446d45473bb6cb4429b094f879
+                  expression: 'last(/MSSQL by Agent passive/mssql.backup.full["{#DBNAME}"])>{$MSSQL.BACKUP_FULL.CRIT:"{#DBNAME}"}'
+                  name: 'MSSQL DB ''{#DBNAME}'': Full backup is old'
+                  event_name: 'MSSQL DB ''{#DBNAME}'': Full backup older than {$MSSQL.BACKUP_FULL.CRIT:"{#DBNAME}"}'
+                  opdata: 'Time since last backup: {ITEM.LASTVALUE1}'
+                  priority: HIGH
+                  description: 'The full backup has not been executed for a long time.'
+                  dependencies:
+                    - name: 'MSSQL DB ''{#DBNAME}'': State is {ITEM.VALUE}'
+                      expression: 'last(/MSSQL by Agent passive/mssql.db.state["{#DBNAME}"])>1'
+                  tags:
+                    - tag: database
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+                - uuid: 23f6bea526ca4610b182ab3f3f40f7e1
+                  expression: 'last(/MSSQL by Agent passive/mssql.backup.full["{#DBNAME}"])>{$MSSQL.BACKUP_FULL.WARN:"{#DBNAME}"}'
+                  name: 'MSSQL DB ''{#DBNAME}'': Full backup is old'
+                  event_name: 'MSSQL DB ''{#DBNAME}'': Full backup older than {$MSSQL.BACKUP_FULL.WARN:"{#DBNAME}"}'
+                  opdata: 'Time since last backup: {ITEM.LASTVALUE1}'
+                  priority: WARNING
+                  description: 'The full backup has not been executed for a long time.'
+                  dependencies:
+                    - name: 'MSSQL DB ''{#DBNAME}'': Full backup is old'
+                      expression: 'last(/MSSQL by Agent passive/mssql.backup.full["{#DBNAME}"])>{$MSSQL.BACKUP_FULL.CRIT:"{#DBNAME}"}'
+                  tags:
+                    - tag: scope
+                      value: availability
+            - uuid: 19f044f853cf43e7af9646313c11d45f
+              name: 'MSSQL DB ''{#DBNAME}'': Last log backup duration'
+              type: DEPENDENT
+              key: 'mssql.backup.log.duration["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              units: s
+              description: 'Duration of the last log backup.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.type==''L'')].duration.first()'
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+              master_item:
+                key: 'mssql.backup.raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: d7f9ee9f36f6498a8357834cff254562
+              name: 'MSSQL DB ''{#DBNAME}'': Last log backup'
+              type: DEPENDENT
+              key: 'mssql.backup.log["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              units: s
+              description: 'The amount of time since the last log backup.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.type==''L'')].timesincelastbackup.first()'
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+              master_item:
+                key: 'mssql.backup.raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: e2189409524c460aaa41d5ae5dc72a3e
+                  expression: 'last(/MSSQL by Agent passive/mssql.backup.log["{#DBNAME}"])>{$MSSQL.BACKUP_LOG.CRIT:"{#DBNAME}"}'
+                  name: 'MSSQL DB ''{#DBNAME}'': Log backup is old'
+                  event_name: 'MSSQL DB ''{#DBNAME}'': Log backup older than {$MSSQL.BACKUP_LOG.CRIT:"{#DBNAME}"}'
+                  opdata: 'Time since last backup: {ITEM.LASTVALUE1}'
+                  priority: HIGH
+                  description: 'The log backup has not been executed for a long time.'
+                  dependencies:
+                    - name: 'MSSQL DB ''{#DBNAME}'': Full backup is old'
+                      expression: 'last(/MSSQL by Agent passive/mssql.backup.full["{#DBNAME}"])>{$MSSQL.BACKUP_FULL.CRIT:"{#DBNAME}"}'
+                    - name: 'MSSQL DB ''{#DBNAME}'': State is {ITEM.VALUE}'
+                      expression: 'last(/MSSQL by Agent passive/mssql.db.state["{#DBNAME}"])>1'
+                  tags:
+                    - tag: database
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+                - uuid: 85d5b8e8dede4d639cc9566e49621057
+                  expression: 'last(/MSSQL by Agent passive/mssql.backup.log["{#DBNAME}"])>{$MSSQL.BACKUP_LOG.WARN:"{#DBNAME}"}'
+                  name: 'MSSQL DB ''{#DBNAME}'': Log backup is old'
+                  event_name: 'MSSQL DB ''{#DBNAME}'': Log backup older than {$MSSQL.BACKUP_LOG.WARN:"{#DBNAME}"}'
+                  opdata: 'Time since last backup: {ITEM.LASTVALUE1}'
+                  priority: WARNING
+                  description: 'The log backup has not been executed for a long time.'
+                  dependencies:
+                    - name: 'MSSQL DB ''{#DBNAME}'': Full backup is old'
+                      expression: 'last(/MSSQL by Agent passive/mssql.backup.full["{#DBNAME}"])>{$MSSQL.BACKUP_FULL.CRIT:"{#DBNAME}"}'
+                    - name: 'MSSQL DB ''{#DBNAME}'': Log backup is old'
+                      expression: 'last(/MSSQL by Agent passive/mssql.backup.log["{#DBNAME}"])>{$MSSQL.BACKUP_LOG.CRIT:"{#DBNAME}"}'
+                    - name: 'MSSQL DB ''{#DBNAME}'': State is {ITEM.VALUE}'
+                      expression: 'last(/MSSQL by Agent passive/mssql.db.state["{#DBNAME}"])>1'
+                  tags:
+                    - tag: database
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+            - uuid: 38ba55a8165c4ac4a10e0dab09a006a6
+              name: 'MSSQL DB ''{#DBNAME}'': Get last backup'
+              type: DEPENDENT
+              key: 'mssql.backup.raw["{#DBNAME}"]'
+              delay: '0'
+              history: '0'
+              trends: '0'
+              value_type: TEXT
+              description: 'The item gets information about backup processes for {#DBNAME}.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.dbname==''{#DBNAME}'')]'
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: 'db.mssql.get[get_last_backup,"{$MSSQL.INSTANCE}"]'
+              tags:
+                - tag: component
+                  value: raw
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: 7506e80c65e14f57bf2c6f9282505d00
+              name: 'MSSQL DB ''{#DBNAME}'': Active transactions'
+              type: DEPENDENT
+              key: 'mssql.db.active_transactions["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: 'Number of active transactions for the database.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Active Transactions'')].cntr_value.first()'
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: 59e8d79a11ad4e8095d5d96451a8a6cc
+              name: 'MSSQL DB ''{#DBNAME}'': Data file size'
+              type: DEPENDENT
+              key: 'mssql.db.data_files_size["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              units: B
+              description: 'Cumulative size of all the data files in the database including any automatic growth. Monitoring this counter is useful, for example, for determining the correct size of tempdb.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Data File(s) Size (KB)'')].cntr_value.first()'
+                - type: MULTIPLIER
+                  parameters:
+                    - '1024'
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: b6c02512d0884e319927e016491abd1c
+              name: 'MSSQL DB ''{#DBNAME}'': Log bytes flushed per second'
+              type: DEPENDENT
+              key: 'mssql.db.log_bytes_flushed_sec.rate["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: Bps
+              description: 'Total number of log bytes flushed per second. Useful for determining trends and utilization of the transaction log.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Log Bytes Flushed/sec'')].cntr_value.first()'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: dd2d72c72fd14e2da01709a217091b7a
+              name: 'MSSQL DB ''{#DBNAME}'': Log file size'
+              type: DEPENDENT
+              key: 'mssql.db.log_files_size["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              units: B
+              description: 'Cumulative size of all the transaction log files in the database.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Log File(s) Size (KB)'')].cntr_value.first()'
+                - type: MULTIPLIER
+                  parameters:
+                    - '1024'
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: 04e4bc3bd3064b3fa61034bd0a47bf09
+              name: 'MSSQL DB ''{#DBNAME}'': Log file used size'
+              type: DEPENDENT
+              key: 'mssql.db.log_files_used_size["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              units: B
+              description: 'Cumulative used size of all the log files in the database.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Log File(s) Used Size (KB)'')].cntr_value.first()'
+                - type: MULTIPLIER
+                  parameters:
+                    - '1024'
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: 58a5a1fc37694846a5b1a82de2241c8c
+              name: 'MSSQL DB ''{#DBNAME}'': Log flushes per second'
+              type: DEPENDENT
+              key: 'mssql.db.log_flushes_sec.rate["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              description: 'Number of log flushes per second.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Log Flushes/sec'')].cntr_value.first()'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: ad28cce3a05b47f5b1904b874336a45c
+              name: 'MSSQL DB ''{#DBNAME}'': Log flush waits per second'
+              type: DEPENDENT
+              key: 'mssql.db.log_flush_waits_sec.rate["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              description: 'Number of commits per second waiting for the log flush.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Log Flush Waits/sec'')].cntr_value.first()'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: 2ffcb6bb766c49f5a493fca83290bb4e
+                  expression: 'min(/MSSQL by Agent passive/mssql.db.log_flush_waits_sec.rate["{#DBNAME}"],5m)>{$MSSQL.LOG_FLUSH_WAITS.MAX:"{#DBNAME}"}'
+                  name: 'MSSQL DB ''{#DBNAME}'': Number of commits waiting for the log flush is high'
+                  event_name: 'MSSQL DB ''{#DBNAME}'': Number of commits waiting for the log flush is high (over {$MSSQL.LOG_FLUSH_WAITS.MAX:"{#DBNAME}"}/sec for 5m)'
+                  priority: WARNING
+                  description: 'Too many commits are waiting for the log flush.'
+                  tags:
+                    - tag: database
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: performance
+            - uuid: 275e4f8ae8384bfa9851aa7e68d9ccbf
+              name: 'MSSQL DB ''{#DBNAME}'': Log flush wait time'
+              type: DEPENDENT
+              key: 'mssql.db.log_flush_wait_time["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: ms
+              description: 'Total wait time (in milliseconds) to flush the log. On an AlwaysOn secondary database, this value indicates the wait time for log records to be hardened to disk.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Log Flush Wait Time'')].cntr_value.first()'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: bc0dc057b49241ffb2fddb43201e3416
+                  expression: 'min(/MSSQL by Agent passive/mssql.db.log_flush_wait_time["{#DBNAME}"],5m)>{$MSSQL.LOG_FLUSH_WAIT_TIME.MAX:"{#DBNAME}"}'
+                  name: 'MSSQL DB ''{#DBNAME}'': Total wait time to flush the log is high'
+                  event_name: 'MSSQL DB ''{#DBNAME}'': Total wait time to flush the log is high (over {$MSSQL.LOG_FLUSH_WAIT_TIME.MAX:"{#DBNAME}"}ms for 5m)'
+                  priority: WARNING
+                  description: 'The wait time to flush the log is too long.'
+                  tags:
+                    - tag: database
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: performance
+            - uuid: c48132fb0db144be8a431d1aa87b0cc0
+              name: 'MSSQL DB ''{#DBNAME}'': Log growths'
+              type: DEPENDENT
+              key: 'mssql.db.log_growths["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: 'Total number of times the transaction log for the database has been expanded.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Log Growths'')].cntr_value.first()'
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: b0ce9069bcb94cfb9f0a7602d18bf0a2
+              name: 'MSSQL DB ''{#DBNAME}'': Log shrinks'
+              type: DEPENDENT
+              key: 'mssql.db.log_shrinks["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: 'Total number of times the transaction log for the database has been shrunk.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Log Shrinks'')].cntr_value.first()'
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: 7cd48037f6824dd085568c19dd07263e
+              name: 'MSSQL DB ''{#DBNAME}'': Log truncations'
+              type: DEPENDENT
+              key: 'mssql.db.log_truncations["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: 'Number of times the transaction log has been shrunk.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Log Truncations'')].cntr_value.first()'
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: 518366fac0024a0aa6272709d9837a02
+              name: 'MSSQL DB ''{#DBNAME}'': Percent log used'
+              type: DEPENDENT
+              key: 'mssql.db.percent_log_used["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: '%'
+              description: 'Percentage of space in the log that is in use.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Percent Log Used'')].cntr_value.first()'
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: 8d85378f890b4137ae3f13a02c554932
+                  expression: 'min(/MSSQL by Agent passive/mssql.db.percent_log_used["{#DBNAME}"],5m)>{$MSSQL.PERCENT_LOG_USED.MAX:"{#DBNAME}"}'
+                  name: 'MSSQL DB ''{#DBNAME}'': Percent of log using is high'
+                  event_name: 'MSSQL DB ''{#DBNAME}'': Percent of log using is high (over {$MSSQL.PERCENT_LOG_USED.MAX:"{#DBNAME}"}% for 5m)'
+                  priority: WARNING
+                  description: 'There''s not enough space left in the log.'
+                  tags:
+                    - tag: database
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: performance
+            - uuid: 5dd174e2a0a247cf804b53e90d2f92c8
+              name: 'MSSQL DB ''{#DBNAME}'': Get performance counters'
+              type: DEPENDENT
+              key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              delay: '0'
+              history: '0'
+              trends: '0'
+              value_type: TEXT
+              description: 'The item gets server status information for {#DBNAME}.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.object_name==''{$MSSQL.INSTANCE}:Databases'' && @.instance_name==''{#DBNAME}'')]'
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: 'db.mssql.get[get_status_variables,"{$MSSQL.INSTANCE}"]'
+              tags:
+                - tag: component
+                  value: raw
+                - tag: database
+                  value: '{#DBNAME}'
+            - uuid: bac60e80f84b4686a55520b348484ea2
+              name: 'MSSQL DB ''{#DBNAME}'': State'
+              type: DEPENDENT
+              key: 'mssql.db.state["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                0 = ONLINE
+                1 = RESTORING
+                2 = RECOVERING | SQL Server 2008 and later
+                3 = RECOVERY_PENDING | SQL Server 2008 and later
+                4 = SUSPECT
+                5 = EMERGENCY | SQL Server 2008 and later
+                6 = OFFLINE | SQL Server 2008 and later
+                7 = COPYING | Azure SQL Database Active Geo-Replication
+                10 = OFFLINE_SECONDARY | Azure SQL Database Active Geo-Replication
+              valuemap:
+                name: 'MSSQL DB state'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''State'')].cntr_value.first()'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 15m
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: de8199c16cf54047873d0f0955003d8b
+                  expression: 'last(/MSSQL by Agent passive/mssql.db.state["{#DBNAME}"])>1'
+                  name: 'MSSQL DB ''{#DBNAME}'': State is {ITEM.VALUE}'
+                  priority: HIGH
+                  description: 'The DB has a non-working state.'
+                  tags:
+                    - tag: database
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+            - uuid: f82b71fe99ff4bbe9e7795b69bc77c32
+              name: 'MSSQL DB ''{#DBNAME}'': Transactions per second'
+              type: DEPENDENT
+              key: 'mssql.db.transactions_sec.rate["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              description: 'Number of transactions started for the database per second.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.counter_name==''Transactions/sec'')].cntr_value.first()'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: 'mssql.db.perf_raw["{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: database
+                - tag: database
+                  value: '{#DBNAME}'
+          graph_prototypes:
+            - uuid: fa0f72cbe71d4d629cfd92480c028f9a
+              name: 'MSSQL DB ''{#DBNAME}'': Log size'
+              graph_items:
+                - color: 199C0D
+                  item:
+                    host: 'MSSQL by Agent passive'
+                    key: 'mssql.db.log_files_size["{#DBNAME}"]'
+                - sortorder: '1'
+                  color: F63100
+                  item:
+                    host: 'MSSQL by Agent passive'
+                    key: 'mssql.db.log_files_used_size["{#DBNAME}"]'
+            - uuid: 72044e2f91394692b87a28ca9601c34b
+              name: 'MSSQL DB ''{#DBNAME}'': Number of Log changes'
+              graph_items:
+                - color: 199C0D
+                  item:
+                    host: 'MSSQL by Agent passive'
+                    key: 'mssql.db.log_growths["{#DBNAME}"]'
+                - sortorder: '1'
+                  color: F63100
+                  item:
+                    host: 'MSSQL by Agent passive'
+                    key: 'mssql.db.log_shrinks["{#DBNAME}"]'
+                - sortorder: '2'
+                  color: 00611C
+                  item:
+                    host: 'MSSQL by Agent passive'
+                    key: 'mssql.db.log_truncations["{#DBNAME}"]'
+            - uuid: 227c7d5defc043f6bd11ef3a5a80b86d
+              name: 'MSSQL DB ''{#DBNAME}'': Size'
+              graph_items:
+                - color: 199C0D
+                  item:
+                    host: 'MSSQL by Agent passive'
+                    key: 'mssql.db.data_files_size["{#DBNAME}"]'
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+        - uuid: c04f3ba5c4fb449e8a68e7128c028c97
+          name: 'Job discovery'
+          key: 'db.mssql.get[jobname,"{$MSSQL.INSTANCE}"]'
+          delay: 1h
+          filter:
+            evaltype: AND
+            conditions:
+              - macro: '{#JOBNAME}'
+                value: '{$MSSQL.JOB.MATCHES}'
+                formulaid: A
+              - macro: '{#JOBNAME}'
+                value: '{$MSSQL.JOB.NOT_MATCHES}'
+                operator: NOT_MATCHES_REGEX
+                formulaid: B
+          description: 'Scanning jobs in DBMS.'
+          item_prototypes:
+            - uuid: 4994bcecc8ca4f57beba411f7cd5e34f
+              name: 'MSSQL Job ''{#JOBNAME}'': Enabled'
+              type: DEPENDENT
+              key: 'mssql.job.enabled["{#JOBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                The job state possible values:
+                0 = Disabled
+                1 = Enabled
+              valuemap:
+                name: 'MSSQL - Yes / No'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.Enabled
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 15m
+              master_item:
+                key: 'mssql.job.status_raw["{#JOBNAME}"]'
+              tags:
+                - tag: component
+                  value: mssql-job
+                - tag: mssql-job
+                  value: '{#JOBNAME}'
+            - uuid: 81a37b5e86cc4619a8b0835dd75cd1a1
+              name: 'MSSQL Job ''{#JOBNAME}'': Last run date-time'
+              type: DEPENDENT
+              key: 'mssql.job.lastrundatetime["{#JOBNAME}"]'
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: TEXT
+              description: 'The last date-time of the job run.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.LastRunDateTime
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'mssql.job.status_raw["{#JOBNAME}"]'
+              tags:
+                - tag: component
+                  value: mssql-job
+                - tag: mssql-job
+                  value: '{#JOBNAME}'
+            - uuid: 17defdd5233442caae57acc2a956e591
+              name: 'MSSQL Job ''{#JOBNAME}'': Last run status message'
+              type: DEPENDENT
+              key: 'mssql.job.lastrunstatusmessage["{#JOBNAME}"]'
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: TEXT
+              description: 'The informational message about the last run of the job.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.LastRunStatusMessage
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 15m
+              master_item:
+                key: 'mssql.job.status_raw["{#JOBNAME}"]'
+              tags:
+                - tag: component
+                  value: mssql-job
+                - tag: mssql-job
+                  value: '{#JOBNAME}'
+            - uuid: 5b624b0c5bf545bdabd94ddf008eda71
+              name: 'MSSQL Job ''{#JOBNAME}'': Next run date-time'
+              type: DEPENDENT
+              key: 'mssql.job.nextrundatetime["{#JOBNAME}"]'
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: TEXT
+              description: 'The next date-time of the job run.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.NextRunDateTime
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 15m
+              master_item:
+                key: 'mssql.job.status_raw["{#JOBNAME}"]'
+              tags:
+                - tag: component
+                  value: mssql-job
+                - tag: mssql-job
+                  value: '{#JOBNAME}'
+            - uuid: 5052c7c3aefe4aea8e8a98b70d3d7999
+              name: 'MSSQL Job ''{#JOBNAME}'': Run status'
+              type: DEPENDENT
+              key: 'mssql.job.runstatus["{#JOBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                The job status possible values:
+                0 ⇒ Failed
+                1 ⇒ Succeeded
+                2 ⇒ Retry
+                3 ⇒ Canceled
+                4 ⇒ Running
+              valuemap:
+                name: 'MSSQL Job Run Status'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.RunStatus
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 15m
+              master_item:
+                key: 'mssql.job.status_raw["{#JOBNAME}"]'
+              tags:
+                - tag: component
+                  value: mssql-job
+                - tag: mssql-job
+                  value: '{#JOBNAME}'
+              trigger_prototypes:
+                - uuid: c83c7d1ba3f8448cbf556acba103a527
+                  expression: 'last(/MSSQL by Agent passive/mssql.job.runstatus["{#JOBNAME}"])=0'
+                  name: 'MSSQL Job ''{#JOBNAME}'': Failed to run'
+                  priority: WARNING
+                  description: 'The last run of the job has failed.'
+                  tags:
+                    - tag: mssql-job
+                      value: '{#JOBNAME}'
+                    - tag: scope
+                      value: performance
+            - uuid: f7658d254bc94cdca8e17bda0becce38
+              name: 'MSSQL Job ''{#JOBNAME}'': Run duration'
+              type: DEPENDENT
+              key: 'mssql.job.run_duration["{#JOBNAME}"]'
+              delay: '0'
+              history: 7d
+              units: s
+              description: 'Duration of the last run job.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.RunDuration
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 15m
+              master_item:
+                key: 'mssql.job.status_raw["{#JOBNAME}"]'
+              tags:
+                - tag: component
+                  value: mssql-job
+                - tag: mssql-job
+                  value: '{#JOBNAME}'
+              trigger_prototypes:
+                - uuid: bea21c223c094d63b1d14271ecae6d15
+                  expression: 'last(/MSSQL by Agent passive/mssql.job.run_duration["{#JOBNAME}"])>{$MSSQL.BACKUP_DURATION.WARN:"{#JOBNAME}"}'
+                  name: 'MSSQL Job ''{#JOBNAME}'': Job duration is high'
+                  event_name: 'MSSQL Job ''{#JOBNAME}'': Job duration is greater than {$MSSQL.BACKUP_DURATION.WARN:"{#JOBNAME}"}'
+                  opdata: 'Job duration: {ITEM.LASTVALUE1}'
+                  priority: WARNING
+                  description: 'The job is taking too long.'
+                  tags:
+                    - tag: mssql-job
+                      value: '{#JOBNAME}'
+                    - tag: scope
+                      value: performance
+            - uuid: 9b67beb8c50c49f5b1448d6995fa70e8
+              name: 'MSSQL Job ''{#JOBNAME}'': Get job status'
+              type: DEPENDENT
+              key: 'mssql.job.status_raw["{#JOBNAME}"]'
+              delay: '0'
+              history: '0'
+              trends: '0'
+              value_type: TEXT
+              description: 'The item gets sql agent job {#JOBNAME} status.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.JobName==''{#JOBNAME}'')].first()'
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: 'db.mssql.get[get_job_status,"{$MSSQL.INSTANCE}"]'
+              tags:
+                - tag: component
+                  value: raw
+                - tag: mssql-job
+                  value: '{#JOBNAME}'
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+        - uuid: 081c2834b8f74a348163946713488c91
+          name: 'Local database discovery'
+          key: 'db.mssql.get[local_db,"{$MSSQL.INSTANCE}"]'
+          delay: 1h
+          description: 'Discovery of the local availability databases.'
+          item_prototypes:
+            - uuid: 8ca3d0e2d9c9442fb8c3d22dda50a5ad
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Local DB ''{#DBNAME}'': Get local DB states'
+              key: 'db.mssql.get4[local_db_states,"{$MSSQL.INSTANCE}","{#REPLICA_NAME}","{#GROUP_NAME}","{#DBNAME}"]'
+              history: '0'
+              trends: '0'
+              value_type: TEXT
+              description: 'Getting the states of the local availability database.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.first()
+                  error_handler: DISCARD_VALUE
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: raw
+                - tag: local-db
+                  value: '{#DBNAME}'
+            - uuid: 21d4abb5ef8d4e1986e89483aa693383
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Local DB ''{#DBNAME}'': Suspended'
+              type: DEPENDENT
+              key: 'mssql.local_db.is_suspended["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Database state:
+                0 = Resumed
+                1 = Suspended
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.is_suspended
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get4[local_db_states,"{$MSSQL.INSTANCE}","{#REPLICA_NAME}","{#GROUP_NAME}","{#DBNAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: local-db
+                - tag: local-db
+                  value: '{#DBNAME}'
+            - uuid: 5b97e7f7044e44f4b6e03a96354c699e
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Local DB ''{#DBNAME}'': State'
+              type: DEPENDENT
+              key: 'mssql.local_db.state["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                0 = Online
+                1 = Restoring
+                2 = Recovering
+                3 = Recovery pending
+                4 = Suspect
+                5 = Emergency
+                6 = Offline
+              valuemap:
+                name: 'MSSQL DB state'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.database_state
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get4[local_db_states,"{$MSSQL.INSTANCE}","{#REPLICA_NAME}","{#GROUP_NAME}","{#DBNAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: local-db
+                - tag: local-db
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: 8d5354711f5f42579c7b0dc07c9e7b7a
+                  expression: 'last(/MSSQL by Agent passive/mssql.local_db.state["{#DBNAME}"])>0'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'' Local DB ''{#DBNAME}'': "{#DBNAME}" is {ITEM.VALUE}'
+                  priority: WARNING
+                  description: 'The local availability database has a non-working state.'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: local-db
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+            - uuid: 3d69b70e617e4fffbb8d121187a0c0a4
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Local DB ''{#DBNAME}'': Synchronization health'
+              type: DEPENDENT
+              key: 'mssql.local_db.synchronization_health["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Reflects the intersection of the synchronization state of a database that is joined to the availability group on the availability replica and the availability mode of the availability replica (synchronous-commit or asynchronous-commit mode):
+                0 = Not healthy. The synchronization_state of the database is 0 (NOT SYNCHRONIZING).
+                1 = Partially healthy. A database on a synchronous-commit availability replica is considered partially healthy if synchronization_state is 1 (SYNCHRONIZING).
+                2 = Healthy. A database on an synchronous-commit availability replica is considered healthy if synchronization_state is 2 (SYNCHRONIZED), and a database on an asynchronous-commit availability replica is considered healthy if synchronization_state is 1 (SYNCHRONIZING).
+              valuemap:
+                name: 'MSSQL AG Synchronization health'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.synchronization_health
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get4[local_db_states,"{$MSSQL.INSTANCE}","{#REPLICA_NAME}","{#GROUP_NAME}","{#DBNAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: local-db
+                - tag: local-db
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: 6e3e5df4eab4408684c685c6d82cb63e
+                  expression: 'last(/MSSQL by Agent passive/mssql.local_db.synchronization_health["{#DBNAME}"])=0'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'' Local DB ''{#DBNAME}'': "{#DBNAME}" is Not healthy'
+                  priority: HIGH
+                  description: 'The synchronization state of the local availability database is NOT SYNCHRONIZING.'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: local-db
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+                - uuid: f73f32429f7a45699be127a58a210169
+                  expression: 'last(/MSSQL by Agent passive/mssql.local_db.synchronization_health["{#DBNAME}"])=1'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'' Local DB ''{#DBNAME}'': "{#DBNAME}" is Partially healthy'
+                  priority: AVERAGE
+                  description: 'A database on a synchronous-commit availability replica is considered partially healthy if synchronization state is SYNCHRONIZING.'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: local-db
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+        - uuid: 8238ac7fa3db461f8b047f0bbbd8c248
+          name: 'Mirroring discovery'
+          key: 'db.mssql.get[mirrors,"{$MSSQL.INSTANCE}"]'
+          delay: 1h
+          description: |
+            To see the row for a database other than master or tempdb, you must
+            either be the database owner or have at least ALTER ANY DATABASE or VIEW ANY
+            DATABASE server-level permission or CREATE DATABASE permission in the master
+            database. To see non-NULL values on a mirror database, you must be a member
+            of the sysadmin fixed server role.
+          item_prototypes:
+            - uuid: 5140b1f3eae143a093e6ce299dfd0938
+              name: 'MSSQL Mirroring ''{#DBNAME}'': Get the mirror state'
+              key: 'db.mssql.get2["mirroring_state","{$MSSQL.INSTANCE}","{#DBNAME}"]'
+              history: '0'
+              trends: '0'
+              value_type: TEXT
+              description: 'Getting mirrors state'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.first()
+                  error_handler: DISCARD_VALUE
+              tags:
+                - tag: component
+                  value: mssql-mirroring
+                - tag: mssql-mirroring
+                  value: '{#DBNAME}'
+            - uuid: a003287f295f4fdd86188fbf47f2bb8c
+              name: 'MSSQL Mirroring ''{#DBNAME}'': Role'
+              type: DEPENDENT
+              key: 'mssql.mirroring.role["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Current role of the local database plays in the database mirroring session.
+                1 = Principal
+                2 = Mirror
+              valuemap:
+                name: 'MSSQL Mirroring Role'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.mirroring_role
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get2["mirroring_state","{$MSSQL.INSTANCE}","{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: mssql-mirroring
+                - tag: mssql-mirroring
+                  value: '{#DBNAME}'
+            - uuid: 4177e61abb184a14835523d0c74d7b06
+              name: 'MSSQL Mirroring ''{#DBNAME}'': Role sequence'
+              type: DEPENDENT
+              key: 'mssql.mirroring.role_sequence["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: 'The number of times that mirroring partners have switched the principal and mirror roles due to a failover or forced service.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.mirroring_role_sequence
+                - type: SIMPLE_CHANGE
+                  parameters:
+                    - ''
+              master_item:
+                key: 'db.mssql.get2["mirroring_state","{$MSSQL.INSTANCE}","{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: mssql-mirroring
+                - tag: mssql-mirroring
+                  value: '{#DBNAME}'
+            - uuid: 620aef0be782492a87cbd075f7bdd0d4
+              name: 'MSSQL Mirroring ''{#DBNAME}'': Safety level'
+              type: DEPENDENT
+              key: 'mssql.mirroring.safety_level["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Safety setting for updates on the mirror database:
+                0 = Unknown state
+                1 = Off [asynchronous]
+                2 = Full [synchronous]
+              valuemap:
+                name: 'MSSQL Safety level'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.mirroring_safety_level
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get2["mirroring_state","{$MSSQL.INSTANCE}","{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: mssql-mirroring
+                - tag: mssql-mirroring
+                  value: '{#DBNAME}'
+            - uuid: f70ef942858440718da548ca953020b3
+              name: 'MSSQL Mirroring ''{#DBNAME}'': State'
+              type: DEPENDENT
+              key: 'mssql.mirroring.state["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                State of the mirror database and of the database mirroring session.
+                0 = Suspended
+                1 = Disconnected from the other partner
+                2 = Synchronizing
+                3 = Pending Failover
+                4 = Synchronized
+                5 = The partners are not synchronized. Failover is not possible now.
+                6 = The partners are synchronized. Failover is potentially possible. For information about the requirements for the failover, see Database Mirroring Operating Modes.
+              valuemap:
+                name: 'MSSQL Mirroring State'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.mirroring_state
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get2["mirroring_state","{$MSSQL.INSTANCE}","{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: mssql-mirroring
+                - tag: mssql-mirroring
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: 0daa5f55b5394a74a016a8933ef37b6a
+                  expression: 'last(/MSSQL by Agent passive/mssql.mirroring.state["{#DBNAME}"])=3'
+                  name: 'MSSQL Mirroring ''{#DBNAME}'': "{#DBNAME}" is {ITEM.VALUE}'
+                  priority: WARNING
+                  description: 'The state of the mirror database and of the database mirroring session is "Pending Failover".'
+                  tags:
+                    - tag: mssql-mirroring
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+                - uuid: a3f7ee06de324a18bd0edd140e8fc8da
+                  expression: 'last(/MSSQL by Agent passive/mssql.mirroring.state["{#DBNAME}"])=5'
+                  name: 'MSSQL Mirroring ''{#DBNAME}'': "{#DBNAME}" is {ITEM.VALUE}'
+                  priority: HIGH
+                  description: 'The state of the mirror database and of the database mirroring session is "Not synchronized". The partners are not synchronized. A failover is not possible now.'
+                  tags:
+                    - tag: mssql-mirroring
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+                - uuid: d2f948fc49b74f1e9455b041b9a31131
+                  expression: 'last(/MSSQL by Agent passive/mssql.mirroring.state["{#DBNAME}"])>=0 and last(/MSSQL by Agent passive/mssql.mirroring.state["{#DBNAME}"])<=2'
+                  name: 'MSSQL Mirroring ''{#DBNAME}'': "{#DBNAME}" is {ITEM.VALUE}'
+                  priority: INFO
+                  description: 'The state of the mirror database and of the database mirroring session is "Suspended", "Disconnected from the other partner", or "Synchronizing".'
+                  tags:
+                    - tag: mssql-mirroring
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+            - uuid: 9ce280652984449fbc4942e092d82d97
+              name: 'MSSQL Mirroring ''{#DBNAME}'': Witness state'
+              type: DEPENDENT
+              key: 'mssql.mirroring.witness_state["{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                State of the witness in the database mirroring session of the database:
+                0 = Unknown
+                1 = Connected
+                2 = Disconnected
+              valuemap:
+                name: 'MSSQL Witness state'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.mirroring_witness_state
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get2["mirroring_state","{$MSSQL.INSTANCE}","{#DBNAME}"]'
+              tags:
+                - tag: component
+                  value: mssql-mirroring
+                - tag: mssql-mirroring
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: 016d6a4a04cf4b83898fab98838ef6f7
+                  expression: 'last(/MSSQL by Agent passive/mssql.mirroring.witness_state["{#DBNAME}"])=2'
+                  name: 'MSSQL Mirroring ''{#DBNAME}'': "{#DBNAME}" Witness is disconnected'
+                  priority: WARNING
+                  description: 'The state of the witness in the database mirroring session of the database is "Disconnected".'
+                  tags:
+                    - tag: mssql-mirroring
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: availability
+          graph_prototypes:
+            - uuid: 43b53e5eb6334348a07a3acde2a2dcff
+              name: 'MSSQL Mirroring ''{#DBNAME}'': States'
+              graph_items:
+                - color: 199C0D
+                  item:
+                    host: 'MSSQL by Agent passive'
+                    key: 'mssql.mirroring.state["{#DBNAME}"]'
+                - sortorder: '1'
+                  color: F63100
+                  item:
+                    host: 'MSSQL by Agent passive'
+                    key: 'mssql.mirroring.witness_state["{#DBNAME}"]'
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+        - uuid: 676725a76c4d42c2b50bb2076e1d9bd4
+          name: 'Non-local database discovery'
+          key: 'db.mssql.get[non-local_db,"{$MSSQL.INSTANCE}"]'
+          delay: 1h
+          description: 'Discovery of the non-local (not local to the SQL Server instance) availability databases.'
+          item_prototypes:
+            - uuid: c5d60b8f197444f881224b221d687813
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Non-Local DB ''*{#REPLICA_NAME}*{#DBNAME}'': Get non-local DB states'
+              key: 'db.mssql.get3[non-local_db.states,"{#REPLICA_NAME}","{#GROUP_NAME}","{#DBNAME}"]'
+              history: '0'
+              trends: '0'
+              value_type: TEXT
+              description: 'Getting the states of the non-local availability database.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.first()
+                  error_handler: DISCARD_VALUE
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: raw
+                - tag: non-local-db
+                  value: '{#DBNAME}'
+            - uuid: f8596204142d4695994688501b455bb0
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Non-Local DB ''*{#REPLICA_NAME}*{#DBNAME}'': Log queue size'
+              type: DEPENDENT
+              key: 'mssql.non-local_db.log_send_queue_size["{#GROUP_NAME}*{#REPLICA_NAME}*{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              units: B
+              description: 'Amount of the log records of the primary database that has not been sent to the secondary databases.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.log_send_queue_size
+                - type: MULTIPLIER
+                  parameters:
+                    - '1024'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get3[non-local_db.states,"{#REPLICA_NAME}","{#GROUP_NAME}","{#DBNAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: non-local-db
+                - tag: non-local-db
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: 28811256c1f84b7abf7e856a39acb29f
+                  expression: 'last(/MSSQL by Agent passive/mssql.non-local_db.log_send_queue_size["{#GROUP_NAME}*{#REPLICA_NAME}*{#DBNAME}"],#1)>last(/MSSQL by Agent passive/mssql.non-local_db.log_send_queue_size["{#GROUP_NAME}*{#REPLICA_NAME}*{#DBNAME}"],#2) and last(/MSSQL by Agent passive/mssql.non-local_db.log_send_queue_size["{#GROUP_NAME}*{#REPLICA_NAME}*{#DBNAME}"],#2)>last(/MSSQL by Agent passive/mssql.non-local_db.log_send_queue_size["{#GROUP_NAME}*{#REPLICA_NAME}*{#DBNAME}"],#3)'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'' Non-Local DB ''*{#REPLICA_NAME}*{#DBNAME}'': Log queue size is growing'
+                  priority: HIGH
+                  description: 'The log records of the primary database are not sent to the secondary databases.'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: non-local-db
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: capacity
+            - uuid: 4a840f739f8f48f28efc232eccfe1364
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Non-Local DB ''*{#REPLICA_NAME}*{#DBNAME}'': Redo log queue size'
+              type: DEPENDENT
+              key: 'mssql.non-local_db.redo_queue_size["{#GROUP_NAME}*{#REPLICA_NAME}*{#DBNAME}"]'
+              delay: '0'
+              history: 7d
+              units: B
+              description: 'Amount of log records in the log files of the secondary replica that has not yet been redone.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.redo_queue_size
+                - type: MULTIPLIER
+                  parameters:
+                    - '1024'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get3[non-local_db.states,"{#REPLICA_NAME}","{#GROUP_NAME}","{#DBNAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: non-local-db
+                - tag: non-local-db
+                  value: '{#DBNAME}'
+              trigger_prototypes:
+                - uuid: 1fc02991b8654eee88287c4e31338389
+                  expression: 'last(/MSSQL by Agent passive/mssql.non-local_db.redo_queue_size["{#GROUP_NAME}*{#REPLICA_NAME}*{#DBNAME}"],#1)>last(/MSSQL by Agent passive/mssql.non-local_db.redo_queue_size["{#GROUP_NAME}*{#REPLICA_NAME}*{#DBNAME}"],#2) and last(/MSSQL by Agent passive/mssql.non-local_db.redo_queue_size["{#GROUP_NAME}*{#REPLICA_NAME}*{#DBNAME}"],#2)>last(/MSSQL by Agent passive/mssql.non-local_db.redo_queue_size["{#GROUP_NAME}*{#REPLICA_NAME}*{#DBNAME}"],#3)'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'' Non-Local DB ''*{#REPLICA_NAME}*{#DBNAME}'': Redo log queue size is growing'
+                  priority: HIGH
+                  description: 'The log records in the log files of the secondary replica have not yet been redone.'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: non-local-db
+                      value: '{#DBNAME}'
+                    - tag: scope
+                      value: capacity
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+        - uuid: eb7d0dbf0f3547998ed0d723b527d94c
+          name: 'Replication discovery'
+          key: 'db.mssql.get[replicas,"{$MSSQL.INSTANCE}"]'
+          delay: 1h
+          description: 'Discovery of the database replicas.'
+          item_prototypes:
+            - uuid: 99fa687c1f6d4e7287952cf061361c7d
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': Get the replica state'
+              key: 'db.mssql.get3["replica_state","{$MSSQL.INSTANCE}","{#GROUP_NAME}","{#REPLICA_NAME}"]'
+              history: '0'
+              trends: '0'
+              value_type: TEXT
+              description: 'Getting the database replica states.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.first()
+                  error_handler: DISCARD_VALUE
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: raw
+                - tag: replica
+                  value: '{#REPLICA_NAME}'
+            - uuid: a6167b4bc39e4c5680665498492c6378
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': Connected state'
+              type: DEPENDENT
+              key: 'mssql.replica.connected_state["{#GROUP_NAME}_{#REPLICA_NAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Whether a secondary replica is currently connected to the primary replica:
+                0 : Disconnected. The response of an availability replica to the DISCONNECTED state depends on its role:
+                On the primary replica, if a secondary replica is disconnected, its secondary databases are marked as NOT SYNCHRONIZED on the primary replica, which waits for the secondary to reconnect;
+                On a secondary replica, upon detecting that it is disconnected, the secondary replica attempts to reconnect to the primary replica.
+                1 : Connected. Each primary replica tracks the connection state for every secondary replica in the same availability group. Secondary replicas track the connection state of only the primary replica.
+              valuemap:
+                name: 'MSSQL AG Connected state'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.connected_state
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get3["replica_state","{$MSSQL.INSTANCE}","{#GROUP_NAME}","{#REPLICA_NAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: replica
+                - tag: replica
+                  value: '{#REPLICA_NAME}'
+            - uuid: afade5b931d84f8997c024bf756311b6
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': Is local'
+              type: DEPENDENT
+              key: 'mssql.replica.is_local["{#GROUP_NAME}_{#REPLICA_NAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Whether the replica is local:
+                0 = Indicates a remote secondary replica in an availability group whose primary replica is hosted by the local server instance. This value occurs only on the primary replica location.
+                1 = Indicates a local replica. On secondary replicas, this is the only available value for the availability group to which the replica belongs.
+              valuemap:
+                name: 'MSSQL - Yes / No'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.is_local
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get3["replica_state","{$MSSQL.INSTANCE}","{#GROUP_NAME}","{#REPLICA_NAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: replica
+                - tag: replica
+                  value: '{#REPLICA_NAME}'
+            - uuid: 48bb2dd3e3db475d93d37d109c80c4c8
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': Join state'
+              type: DEPENDENT
+              key: 'mssql.replica.join_state["{#GROUP_NAME}_{#REPLICA_NAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                0 = Not joined
+                1 = Joined, standalone instance
+                2 = Joined, failover cluster instance
+              valuemap:
+                name: 'MSSQL AG Join state'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.join_state
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get3["replica_state","{$MSSQL.INSTANCE}","{#GROUP_NAME}","{#REPLICA_NAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: replica
+                - tag: replica
+                  value: '{#REPLICA_NAME}'
+            - uuid: 152cff684918414fac26c56aeb27c292
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': Operational state'
+              type: DEPENDENT
+              key: 'mssql.replica.operational_state["{#GROUP_NAME}_{#REPLICA_NAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Current operational state of the replica:
+                0 = Pending failover
+                1 = Pending
+                2 = Online
+                3 = Offline
+                4 = Failed
+                5 = Failed, no quorum
+                6 = Not local
+              valuemap:
+                name: 'MSSQL AG Operational state'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.operational_state
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get3["replica_state","{$MSSQL.INSTANCE}","{#GROUP_NAME}","{#REPLICA_NAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: replica
+                - tag: replica
+                  value: '{#REPLICA_NAME}'
+              trigger_prototypes:
+                - uuid: e29891b3589947bba39b6066bffacf8a
+                  expression: 'last(/MSSQL by Agent passive/mssql.replica.operational_state["{#GROUP_NAME}_{#REPLICA_NAME}"])=0 or last(/MSSQL by Agent passive/mssql.replica.operational_state["{#GROUP_NAME}_{#REPLICA_NAME}"])=1 or last(/MSSQL by Agent passive/mssql.replica.operational_state["{#GROUP_NAME}_{#REPLICA_NAME}"])=3'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': {#REPLICA_NAME} is {ITEM.VALUE}'
+                  priority: WARNING
+                  description: 'The operational state of the replica in a given availability group is "Pending" or "Offline".'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: replica
+                      value: '{#REPLICA_NAME}'
+                    - tag: scope
+                      value: availability
+                - uuid: 4604aeaa8324440da078f1c91b7c48d3
+                  expression: 'last(/MSSQL by Agent passive/mssql.replica.operational_state["{#GROUP_NAME}_{#REPLICA_NAME}"])=4'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': {#REPLICA_NAME} is {ITEM.VALUE}'
+                  priority: AVERAGE
+                  description: 'The operational state of the replica in a given availability group is "Failed".'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: replica
+                      value: '{#REPLICA_NAME}'
+                    - tag: scope
+                      value: availability
+                - uuid: 1b86a493cf4143b98ec9c22d7f639e49
+                  expression: 'last(/MSSQL by Agent passive/mssql.replica.operational_state["{#GROUP_NAME}_{#REPLICA_NAME}"])=5'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': {#REPLICA_NAME} is {ITEM.VALUE}'
+                  priority: HIGH
+                  description: 'The operational state of the replica in a given availability group is "Failed, no quorum".'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: replica
+                      value: '{#REPLICA_NAME}'
+                    - tag: scope
+                      value: availability
+            - uuid: f95ebb4e2ad84168b5933f9710eb41b3
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': Recovery health'
+              type: DEPENDENT
+              key: 'mssql.replica.recovery_health["{#GROUP_NAME}_{#REPLICA_NAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Rollup of the database_state column of the sys.dm_hadr_database_replica_states dynamic management view:
+                0 : In progress. At least one joined database has a database state other than ONLINE 
+                (database_state is not 0).
+                1 : Online. All the joined databases have a database state of ONLINE (database_state is 0).
+              valuemap:
+                name: 'MSSQL AG Recovery health'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.recovery_health
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get3["replica_state","{$MSSQL.INSTANCE}","{#GROUP_NAME}","{#REPLICA_NAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: replica
+                - tag: replica
+                  value: '{#REPLICA_NAME}'
+              trigger_prototypes:
+                - uuid: 12f7bec2916b444c8b883667beeed14f
+                  expression: 'last(/MSSQL by Agent passive/mssql.replica.recovery_health["{#GROUP_NAME}_{#REPLICA_NAME}"])=0'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': {#REPLICA_NAME} Recovery in progress'
+                  priority: INFO
+                  description: 'At least one joined database has a database state other than ONLINE.'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: replica
+                      value: '{#REPLICA_NAME}'
+                    - tag: scope
+                      value: notice
+            - uuid: 5d5e6571d6f74da48a28778773965831
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': Role'
+              type: DEPENDENT
+              key: 'mssql.replica.role["{#GROUP_NAME}_{#REPLICA_NAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Current Always On availability groups role of a local replica or a connected remote replica:
+                0 = Resolving
+                1 = Primary
+                2 = Secondary
+              valuemap:
+                name: 'MSSQL AG Role'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.role
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get3["replica_state","{$MSSQL.INSTANCE}","{#GROUP_NAME}","{#REPLICA_NAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: replica
+                - tag: replica
+                  value: '{#REPLICA_NAME}'
+            - uuid: a5bf1bf1614640eab06eb48a2dd38652
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': Sync health'
+              type: DEPENDENT
+              key: 'mssql.replica.synchronization_health["{#GROUP_NAME}_{#REPLICA_NAME}"]'
+              delay: '0'
+              history: 7d
+              description: |
+                Reflects a rollup of the database synchronization state (synchronization_state)of all joined availability databases (also known as replicas) and the availability mode of the replica (synchronous-commit or asynchronous-commit mode). The rollup will reflect the least healthy accumulated state of the databases on the replica:
+                0 : Not healthy. At least one joined database is in the NOT SYNCHRONIZING state.
+                1 : Partially healthy. Some replicas are not in the target synchronization state: synchronous-commit replicas should be synchronized, and asynchronous-commit replicas should be synchronizing.
+                2 : Healthy. All replicas are in the target synchronization state: synchronous-commit replicas are synchronized, and asynchronous-commit replicas are synchronizing.
+              valuemap:
+                name: 'MSSQL AG Synchronization health'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.synchronization_health
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'db.mssql.get3["replica_state","{$MSSQL.INSTANCE}","{#GROUP_NAME}","{#REPLICA_NAME}"]'
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: component
+                  value: replica
+                - tag: replica
+                  value: '{#REPLICA_NAME}'
+              trigger_prototypes:
+                - uuid: 51182fa4be9244298928ae76ee4af6f9
+                  expression: 'last(/MSSQL by Agent passive/mssql.replica.synchronization_health["{#GROUP_NAME}_{#REPLICA_NAME}"])=0'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': {#REPLICA_NAME} is Not healthy'
+                  priority: AVERAGE
+                  description: 'At least one joined database is in the NOT SYNCHRONIZING state.'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: replica
+                      value: '{#REPLICA_NAME}'
+                    - tag: scope
+                      value: availability
+                - uuid: d54e2bfeea334abca16cab89100420ba
+                  expression: 'last(/MSSQL by Agent passive/mssql.replica.synchronization_health["{#GROUP_NAME}_{#REPLICA_NAME}"])=1'
+                  name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': {#REPLICA_NAME} is Partially healthy'
+                  priority: WARNING
+                  description: 'Some replicas are not in the target synchronization state: synchronous-commit replicas should be synchronized, and asynchronous-commit replicas should be synchronizing.'
+                  tags:
+                    - tag: availability-group
+                      value: '{#GROUP_NAME}'
+                    - tag: replica
+                      value: '{#REPLICA_NAME}'
+                    - tag: scope
+                      value: availability
+          trigger_prototypes:
+            - uuid: bfcaf36108b74e70b2290b0bdf34f2cd
+              expression: 'last(/MSSQL by Agent passive/mssql.replica.connected_state["{#GROUP_NAME}_{#REPLICA_NAME}"])=0 and last(/MSSQL by Agent passive/mssql.replica.role["{#GROUP_NAME}_{#REPLICA_NAME}"])=2'
+              name: 'MSSQL AG ''{#GROUP_NAME}'' Replica ''{#REPLICA_NAME}'': {#REPLICA_NAME} is disconnected'
+              priority: WARNING
+              description: |
+                The response of an availability replica to the DISCONNECTED state depends on its role:
+                On the primary replica, if a secondary replica is disconnected, its secondary databases are marked as NOT SYNCHRONIZED on the primary replica, which waits for the secondary to reconnect; On a secondary replica, upon detecting that it is disconnected, the secondary replica attempts to reconnect to the primary replica.
+              tags:
+                - tag: availability-group
+                  value: '{#GROUP_NAME}'
+                - tag: replica
+                  value: '{#REPLICA_NAME}'
+                - tag: scope
+                  value: availability
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+      tags:
+        - tag: class
+          value: database
+        - tag: target
+          value: mssql
+      macros:
+        - macro: '{$MSSQL.AVERAGE_WAIT_TIME.MAX}'
+          value: '500'
+          description: 'The maximum average wait time in ms - for the trigger expression.'
+        - macro: '{$MSSQL.BACKUP_DIFF.CRIT}'
+          value: 6d
+          description: 'The maximum days without a differential backup - for the High trigger expression.'
+        - macro: '{$MSSQL.BACKUP_DIFF.WARN}'
+          value: 3d
+          description: 'The maximum days without a differential backup - for the Warning trigger expression.'
+        - macro: '{$MSSQL.BACKUP_DURATION.WARN}'
+          value: 1h
+          description: 'The maximum job duration - for the Warning trigger expression.'
+        - macro: '{$MSSQL.BACKUP_FULL.CRIT}'
+          value: 10d
+          description: 'The maximum days without a full backup - for the High trigger expression.'
+        - macro: '{$MSSQL.BACKUP_FULL.WARN}'
+          value: 9d
+          description: 'The maximum days without a full backup - for the Warning trigger expression.'
+        - macro: '{$MSSQL.BACKUP_LOG.CRIT}'
+          value: 8h
+          description: 'The maximum days without a log backup - for the High trigger expression.'
+        - macro: '{$MSSQL.BACKUP_LOG.WARN}'
+          value: 4h
+          description: 'The maximum days without a log backup - for the Warning trigger expression.'
+        - macro: '{$MSSQL.BUFFER_CACHE_RATIO.MIN.CRIT}'
+          value: '30'
+          description: 'The minimum % buffer cache hit ratio - for the High trigger expression.'
+        - macro: '{$MSSQL.BUFFER_CACHE_RATIO.MIN.WARN}'
+          value: '50'
+          description: 'The minimum % buffer cache hit ratio - for the Warning trigger expression.'
+        - macro: '{$MSSQL.DBNAME.MATCHES}'
+          value: '.*'
+          description: 'This macro is used in database discovery. It can be overridden on a host or linked template level.'
+        - macro: '{$MSSQL.DBNAME.NOT_MATCHES}'
+          value: master|tempdb|model|msdb
+          description: 'This macro is used in database discovery. It can be overridden on a host or linked template level.'
+        - macro: '{$MSSQL.DEADLOCKS.MAX}'
+          value: '1'
+          description: 'The maximum deadlocks per second - for the trigger expression.'
+        - macro: '{$MSSQL.FREE_LIST_STALLS.MAX}'
+          value: '2'
+          description: 'The maximum free list stalls per second - for the trigger expression.'
+        - macro: '{$MSSQL.INSTANCE}'
+          value: SQLServer
+          description: 'The instance name for the default instance is SQLServer. For named instance set the macro value as MSSQL$instance name.'
+        - macro: '{$MSSQL.JOB.MATCHES}'
+          value: '.*'
+          description: 'This macro is used in job discovery. It can be overridden on a host or linked template level.'
+        - macro: '{$MSSQL.JOB.NOT_MATCHES}'
+          value: CHANGE_IF_NEEDED
+          description: 'This macro is used in job discovery. It can be overridden on a host or linked template level.'
+        - macro: '{$MSSQL.LAZY_WRITES.MAX}'
+          value: '20'
+          description: 'The maximum lazy writes per second - for the trigger expression.'
+        - macro: '{$MSSQL.LOCK_REQUESTS.MAX}'
+          value: '1000'
+          description: 'The maximum lock requests per second - for the trigger expression.'
+        - macro: '{$MSSQL.LOCK_TIMEOUTS.MAX}'
+          value: '2'
+          description: 'The maximum lock timeouts per second - for the trigger expression.'
+        - macro: '{$MSSQL.LOG_FLUSH_WAITS.MAX}'
+          value: '2'
+          description: 'The maximum log flush waits per second - for the trigger expression.'
+        - macro: '{$MSSQL.LOG_FLUSH_WAIT_TIME.MAX}'
+          value: '50'
+          description: 'The maximum log flush wait time in ms - for the trigger expression.'
+        - macro: '{$MSSQL.PAGE_LIFE_EXPECTANCY.MIN}'
+          value: '300'
+          description: 'The minimum page life expectancy - for the trigger expression.'
+        - macro: '{$MSSQL.PAGE_READS.MAX}'
+          value: '90'
+          description: 'The maximum page reads per second - for the trigger expression.'
+        - macro: '{$MSSQL.PAGE_WRITES.MAX}'
+          value: '90'
+          description: 'The maximum page writes per second - for the trigger expression.'
+        - macro: '{$MSSQL.PERCENT_COMPILATIONS.MAX}'
+          value: '10'
+          description: 'The maximum percentage of Transact-SQL compilations - for the trigger expression.'
+        - macro: '{$MSSQL.PERCENT_LOG_USED.MAX}'
+          value: '95'
+          description: 'The maximum percentage of log used - for the trigger expression.'
+        - macro: '{$MSSQL.PERCENT_READAHEAD.MAX}'
+          value: '40'
+          description: 'The maximum percentage of pages read/sec in anticipation of use - for the trigger expression.'
+        - macro: '{$MSSQL.PERCENT_RECOMPILATIONS.MAX}'
+          value: '10'
+          description: 'The maximum percentage of Transact-SQL recompilations - for the trigger expression.'
+        - macro: '{$MSSQL.WORKTABLES_FROM_CACHE_RATIO.MIN.CRIT}'
+          value: '60'
+          description: 'The minimum percentage of the worktables from cache ratio - for the High trigger expression.'
+        - macro: '{$MSSQL.WORK_FILES.MAX}'
+          value: '20'
+          description: 'The maximum number of work files created per second - for the trigger expression.'
+        - macro: '{$MSSQL.WORK_TABLES.MAX}'
+          value: '20'
+          description: 'The maximum number of work tables created per second - for the trigger expression.'
+      dashboards:
+        - uuid: 5b0c403b5c9d486f80a0fadbba2115fb
+          name: 'MSSQL: Overview'
+          pages:
+            - name: Main
+              widgets:
+                - type: graph
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Errors'
+                - type: graph
+                  x: '12'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Locks'
+                - type: graph
+                  'y': '5'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Server memory'
+                - type: graph
+                  x: '12'
+                  'y': '5'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Memory/cache load'
+                - type: graph
+                  'y': '10'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Waits per second'
+                - type: graph
+                  x: '12'
+                  'y': '10'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Wait times'
+                - type: graph
+                  'y': '15'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Database pages'
+                - type: graph
+                  x: '12'
+                  'y': '15'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Cache objects'
+                - type: graph
+                  'y': '20'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Transactions'
+                - type: graph
+                  x: '12'
+                  'y': '20'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Compilations'
+                - type: graph
+                  'y': '25'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Pages'
+                - type: graph
+                  x: '12'
+                  'y': '25'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Page life expectancy'
+                - type: graph
+                  'y': '30'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Memory grants outstanding and pending'
+                - type: graph
+                  x: '12'
+                  'y': '30'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Processes blocked'
+                - type: graph
+                  'y': '35'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Access methods'
+                - type: graph
+                  x: '12'
+                  'y': '35'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Auto-params'
+                - type: graph
+                  'y': '40'
+                  width: '12'
+                  height: '5'
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL: Logins per second and Logouts per second'
+            - name: Databases
+              widgets:
+                - type: graphprototype
+                  width: '12'
+                  height: '15'
+                  fields:
+                    - type: INTEGER
+                      name: columns
+                      value: '1'
+                    - type: INTEGER
+                      name: rows
+                      value: '3'
+                    - type: GRAPH_PROTOTYPE
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL DB ''{#DBNAME}'': Size'
+                - type: graphprototype
+                  x: '12'
+                  width: '12'
+                  height: '15'
+                  fields:
+                    - type: INTEGER
+                      name: columns
+                      value: '1'
+                    - type: INTEGER
+                      name: rows
+                      value: '3'
+                    - type: GRAPH_PROTOTYPE
+                      name: graphid
+                      value:
+                        host: 'MSSQL by Agent passive'
+                        name: 'MSSQL DB ''{#DBNAME}'': Log size'
+      valuemaps:
+        - uuid: f41be0c2b5384bff956604aa107ace75
+          name: 'MSSQL - Yes / No'
+          mappings:
+            - value: '0'
+              newvalue: 'No'
+            - value: '1'
+              newvalue: 'Yes'
+        - uuid: 83e9bfb1485b4632abe2312077b87fa7
+          name: 'MSSQL AG Connected state'
+          mappings:
+            - value: '0'
+              newvalue: Disconnected
+            - value: '1'
+              newvalue: Connected
+        - uuid: cc499d69d7cf44dab367b7e302571e98
+          name: 'MSSQL AG Join state'
+          mappings:
+            - value: '0'
+              newvalue: 'Not joined'
+            - value: '1'
+              newvalue: 'Joined, standalone instance'
+            - value: '2'
+              newvalue: 'Joined, failover cluster instance'
+        - uuid: 58229f5b5aab47a1b7e17f4754407931
+          name: 'MSSQL AG Operational state'
+          mappings:
+            - value: '0'
+              newvalue: 'Pending failover'
+            - value: '1'
+              newvalue: Pending
+            - value: '2'
+              newvalue: Online
+            - value: '3'
+              newvalue: Offline
+            - value: '4'
+              newvalue: Failed
+            - value: '5'
+              newvalue: 'Failed, no quorum'
+            - value: '6'
+              newvalue: 'Replica is not local'
+        - uuid: 79036e1b544946f890b974ae2d13fc10
+          name: 'MSSQL AG Recovery health'
+          mappings:
+            - value: '0'
+              newvalue: 'In progress'
+            - value: '1'
+              newvalue: Online
+            - value: '2'
+              newvalue: 'Replica is not local'
+        - uuid: 1d604c8eaf144a51984e7f5017aecc72
+          name: 'MSSQL AG Role'
+          mappings:
+            - value: '0'
+              newvalue: Resolving
+            - value: '1'
+              newvalue: Primary
+            - value: '2'
+              newvalue: Secondary
+        - uuid: 5e0f575ad8ea4e93b0bdb97d8dcb4a0b
+          name: 'MSSQL AG Synchronization health'
+          mappings:
+            - value: '0'
+              newvalue: 'Not healthy'
+            - value: '1'
+              newvalue: 'Partially healthy'
+            - value: '2'
+              newvalue: Healthy
+        - uuid: 1e24310a73a14e518714e5c9c8a075b1
+          name: 'MSSQL DB state'
+          mappings:
+            - value: '0'
+              newvalue: ONLINE
+            - value: '1'
+              newvalue: RESTORING
+            - value: '2'
+              newvalue: RECOVERING
+            - value: '3'
+              newvalue: RECOVERY_PENDING
+            - value: '4'
+              newvalue: SUSPECT
+            - value: '5'
+              newvalue: EMERGENCY
+            - value: '6'
+              newvalue: OFFLINE
+            - value: '7'
+              newvalue: COPYING
+            - value: '10'
+              newvalue: OFFLINE_SECONDARY
+        - uuid: 2efba6ca9cb04807afcb6b4e77c57e6e
+          name: 'MSSQL Job Run Status'
+          mappings:
+            - value: '0'
+              newvalue: Failed
+            - value: '1'
+              newvalue: Succeeded
+            - value: '2'
+              newvalue: Retry
+            - value: '3'
+              newvalue: Canceled
+            - value: '4'
+              newvalue: Running
+            - value: '5'
+              newvalue: Unknown
+        - uuid: 995d3c40152e4eed8ee634a4dfbc42d2
+          name: 'MSSQL Mirroring Role'
+          mappings:
+            - value: '0'
+              newvalue: 'Database is inaccessible or is not mirrored'
+            - value: '1'
+              newvalue: Principal
+            - value: '2'
+              newvalue: Mirror
+        - uuid: b328b62f6ffd4c4889e2c772ce99a345
+          name: 'MSSQL Mirroring State'
+          mappings:
+            - value: '0'
+              newvalue: Suspended
+            - value: '1'
+              newvalue: 'Disconnected from the other partner'
+            - value: '2'
+              newvalue: Synchronizing
+            - value: '3'
+              newvalue: 'Pending Failover'
+            - value: '4'
+              newvalue: Synchronized
+            - value: '5'
+              newvalue: 'The partners are not synchronized. Failover is not possible now.'
+            - value: '6'
+              newvalue: 'The partners are synchronized. Failover is potentially possible.'
+            - value: '7'
+              newvalue: 'Database is inaccessible or is not mirrored'
+        - uuid: 0510bed2953e4d20ad58255d9dd1ed34
+          name: 'MSSQL Safety level'
+          mappings:
+            - value: '0'
+              newvalue: 'Unknown state'
+            - value: '1'
+              newvalue: 'Off [asynchronous]'
+            - value: '2'
+              newvalue: 'Full [synchronous]'
+            - value: '3'
+              newvalue: 'Database is inaccessible or is not mirrored'
+        - uuid: ec07cbd3c31944ff8b087ad00e117adf
+          name: 'MSSQL Witness state'
+          mappings:
+            - value: '0'
+              newvalue: Unknown
+            - value: '1'
+              newvalue: Connected
+            - value: '2'
+              newvalue: Disconnected
+            - value: '3'
+              newvalue: 'No witness exists'
+        - uuid: 998f0332e14d4b6abde7ba4567898578
+          name: 'Service state'
+          mappings:
+            - value: '0'
+              newvalue: Down
+            - value: '1'
+              newvalue: Up
+  triggers:
+    - uuid: f0d266b692224909a4443209dda96211
+      expression: 'last(/MSSQL by Agent passive/mssql.forwarded_records_sec.rate) * 100 > 10 * last(/MSSQL by Agent passive/mssql.batch_requests_sec.rate)'
+      name: 'MSSQL: Too frequently using pointers'
+      priority: WARNING
+      description: 'Rows with varchar columns can experience expansion when varchar values are updated with a longer string.  In the case where the row cannot fit in the existing page, the row migrates and access to the row will traverse a pointer.  This only happens on heaps (tables without clustered indexes). Evaluate clustered index for heap tables.  In cases where clustered indexes cannot be used, drop non-clustered indexes, build a clustered index to reorg pages and rows, drop the clustered index, then recreate non-clustered indexes.'
+      tags:
+        - tag: scope
+          value: performance
+    - uuid: 0519e1ba1f7242da8a143b584dbc928c
+      expression: 'last(/MSSQL by Agent passive/mssql.readahead_pages_sec.rate) > {$MSSQL.PERCENT_READAHEAD.MAX} / 100 * last(/MSSQL by Agent passive/mssql.page_reads_sec.rate)'
+      name: 'MSSQL: Too many physical reads occurring'
+      priority: WARNING
+      description: 'If this value makes up even a sizeable minority of the total Page Reads/sec (say, greater than 20% of the total page reads), you may have too many physical reads occurring.'
+      tags:
+        - tag: scope
+          value: performance
+  graphs:
+    - uuid: 6fef4a17afec4adb96550d6163f22f8d
+      name: 'MSSQL: Access methods'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.forwarded_records_sec.rate
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.full_scans_sec.rate
+        - sortorder: '2'
+          color: 00611C
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.index_searches_sec.rate
+        - sortorder: '3'
+          color: F7941D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.page_splits_sec.rate
+        - sortorder: '4'
+          color: FC6EA3
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.workfiles_created_sec.rate
+        - sortorder: '5'
+          color: 6C59DC
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.worktables_created_sec.rate
+    - uuid: 2696d8fd89b34727bcd12f4ff6e7e8b7
+      name: 'MSSQL: Auto-params'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.autoparam_attempts_sec.rate
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.failed_autoparams_sec.rate
+        - sortorder: '2'
+          color: 00611C
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.safe_autoparams_sec.rate
+        - sortorder: '3'
+          color: F7941D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.unsafe_autoparams_sec.rate
+    - uuid: 9ed9dee021ca4386b88a61468fa30d43
+      name: 'MSSQL: Cache objects'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.cache_object_counts
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.cache_objects_in_use
+    - uuid: 4ab4752e431946d68823db47ba2a9166
+      name: 'MSSQL: Compilations'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.sql_compilations_sec.rate
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.sql_compilations_sec.rate
+    - uuid: 5e074296239f4006b2582844daffe6b8
+      name: 'MSSQL: Database pages'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.database_pages
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.target_pages
+    - uuid: 81cb9788dae64aab953bb0c0e1dce1a5
+      name: 'MSSQL: Errors'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.errors_sec.rate
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.offline_errors_sec.rate
+        - sortorder: '2'
+          color: 00611C
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.info_errors_sec.rate
+        - sortorder: '3'
+          color: F7941D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.kill_connection_errors_sec.rate
+        - sortorder: '4'
+          color: FC6EA3
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.user_errors_sec.rate
+    - uuid: 7d9e2927f1be4fa683356f463a0cdd83
+      name: 'MSSQL: Locks'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.lock_requests_sec.rate
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.lock_timeouts_sec.rate
+        - sortorder: '2'
+          color: 00611C
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.number_deadlocks_sec.rate
+        - sortorder: '3'
+          color: F7941D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.lock_waits_sec.rate
+        - sortorder: '4'
+          color: FC6EA3
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.average_wait_time
+    - uuid: 8f4ffbc2fde940418e6fa6af2b45878c
+      name: 'MSSQL: Logins per second and Logouts per second'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.logins_sec.rate
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.logouts_sec.rate
+    - uuid: 567dfd32099742e39f1ad2b10130fabf
+      name: 'MSSQL: Memory/cache load'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.cache_hit_ratio
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.buffer_cache_hit_ratio
+    - uuid: d654a1b6870d4b0286dcd7932b04dcb6
+      name: 'MSSQL: Memory grants outstanding and pending'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.memory_grants_outstanding
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.memory_grants_pending
+    - uuid: 513372cdd0db4d449ce233df77273c59
+      name: 'MSSQL: Page life expectancy'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.page_life_expectancy
+    - uuid: d7225f46f1054bd2aa0bc22e64c98585
+      name: 'MSSQL: Pages'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.page_lookups_sec.rate
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.page_reads_sec.rate
+        - sortorder: '2'
+          color: 00611C
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.page_writes_sec.rate
+        - sortorder: '3'
+          color: F7941D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.readahead_pages_sec.rate
+        - sortorder: '4'
+          color: FC6EA3
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.checkpoint_pages_sec.rate
+        - sortorder: '5'
+          color: 6C59DC
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.free_list_stalls_sec.rate
+        - sortorder: '6'
+          color: C7A72D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.lazy_writes_sec.rate
+    - uuid: acf59a30f70b4e61b035f28f7c3adb73
+      name: 'MSSQL: Processes blocked'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.processes_blocked
+    - uuid: 19158471daaf42fb8264dec65899dd08
+      name: 'MSSQL: Server memory'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.target_server_memory
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.total_server_memory
+        - sortorder: '2'
+          color: 00611C
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.granted_workspace_memory
+        - sortorder: '3'
+          color: F7941D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.maximum_workspace_memory
+    - uuid: 371a4abb47bb4f90a9c2a994b1c46928
+      name: 'MSSQL: Transactions'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.transactions_sec.rate
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.batch_requests_sec.rate
+    - uuid: ffc48cd849e4437a9767205e56b6a882
+      name: 'MSSQL: Waits per second'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.latch_waits_sec.rate
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.lock_waits_sec.rate
+    - uuid: a5dc2ce637c945cebe4845c0492b57f6
+      name: 'MSSQL: Wait times'
+      graph_items:
+        - color: 199C0D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.average_latch_wait_time
+        - sortorder: '1'
+          color: F63100
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.total_latch_wait_time
+        - sortorder: '2'
+          color: 00611C
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.average_wait_time
+        - sortorder: '3'
+          color: F7941D
+          item:
+            host: 'MSSQL by Agent passive'
+            key: mssql.lock_wait_time

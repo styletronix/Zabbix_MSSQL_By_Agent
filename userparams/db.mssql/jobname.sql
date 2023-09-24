@@ -1,0 +1,1 @@
+SELECT name AS jobname FROM msdb..sysjobs WHERE enabled = 1
