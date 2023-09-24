@@ -1942,6 +1942,9 @@ zabbix_export:
                       value: '{#GROUP_NAME}'
                     - tag: scope
                       value: availability
+          lld_macro_paths:
+            - lld_macro: '{#GROUP_NAME}'
+              path: $.group_name
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
@@ -2197,6 +2200,9 @@ zabbix_export:
               value_type: TEXT
               description: 'The item gets information about backup processes for {#DBNAME}.'
               preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$[?(@.instance_name==''{#DBNAME}'')]'
                 - type: JSONPATH
                   parameters:
                     - '$[?(@.dbname==''{#DBNAME}'')]'
@@ -2615,10 +2621,9 @@ zabbix_export:
                   item:
                     host: 'MSSQL by Agent passive'
                     key: 'mssql.db.data_files_size["{#DBNAME}"]'
-          preprocessing:
-            - type: DISCARD_UNCHANGED_HEARTBEAT
-              parameters:
-                - 1d
+          lld_macro_paths:
+            - lld_macro: '{#DBNAME}'
+              path: $.dbname
         - uuid: c04f3ba5c4fb449e8a68e7128c028c97
           name: 'Job discovery'
           key: 'db.mssql.get[jobname,"{$MSSQL.INSTANCE}"]'
@@ -2826,10 +2831,9 @@ zabbix_export:
                   value: raw
                 - tag: mssql-job
                   value: '{#JOBNAME}'
-          preprocessing:
-            - type: DISCARD_UNCHANGED_HEARTBEAT
-              parameters:
-                - 1d
+          lld_macro_paths:
+            - lld_macro: '{#JOBNAME}'
+              path: $.jobname
         - uuid: 081c2834b8f74a348163946713488c91
           name: 'Local database discovery'
           key: 'db.mssql.get[local_db,"{$MSSQL.INSTANCE}"]'
@@ -2980,10 +2984,9 @@ zabbix_export:
                       value: '{#DBNAME}'
                     - tag: scope
                       value: availability
-          preprocessing:
-            - type: DISCARD_UNCHANGED_HEARTBEAT
-              parameters:
-                - 1d
+          lld_macro_paths:
+            - lld_macro: '{#DBNAME}'
+              path: $.dbname
         - uuid: 8238ac7fa3db461f8b047f0bbbd8c248
           name: 'Mirroring discovery'
           key: 'db.mssql.get[mirrors,"{$MSSQL.INSTANCE}"]'
@@ -3199,10 +3202,9 @@ zabbix_export:
                   item:
                     host: 'MSSQL by Agent passive'
                     key: 'mssql.mirroring.witness_state["{#DBNAME}"]'
-          preprocessing:
-            - type: DISCARD_UNCHANGED_HEARTBEAT
-              parameters:
-                - 1d
+          lld_macro_paths:
+            - lld_macro: '{#DBNAME}'
+              path: $.dbname
         - uuid: 676725a76c4d42c2b50bb2076e1d9bd4
           name: 'Non-local database discovery'
           key: 'db.mssql.get[non-local_db,"{$MSSQL.INSTANCE}"]'
@@ -3308,10 +3310,13 @@ zabbix_export:
                       value: '{#DBNAME}'
                     - tag: scope
                       value: capacity
-          preprocessing:
-            - type: DISCARD_UNCHANGED_HEARTBEAT
-              parameters:
-                - 1d
+          lld_macro_paths:
+            - lld_macro: '{#DBNAME}'
+              path: $.dbname
+            - lld_macro: '{#GROUP_NAME}'
+              path: $.group_name
+            - lld_macro: '{#REPLICA_NAME}'
+              path: $.replica_name
         - uuid: eb7d0dbf0f3547998ed0d723b527d94c
           name: 'Replication discovery'
           key: 'db.mssql.get[replicas,"{$MSSQL.INSTANCE}"]'
@@ -3633,10 +3638,6 @@ zabbix_export:
                   value: '{#REPLICA_NAME}'
                 - tag: scope
                   value: availability
-          preprocessing:
-            - type: DISCARD_UNCHANGED_HEARTBEAT
-              parameters:
-                - 1d
       tags:
         - tag: class
           value: database
