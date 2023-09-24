@@ -6,6 +6,8 @@ Requires Powershell including the sqlserver Module on the Database Server.
 Currently in beta Version and not fully tested.
 
 
+## ToDo:
+- See "Issues" on Github.
 
 ## Pros and Cons comparing to the original "MSSQL by ODBC" Template from Zabbix.
 
