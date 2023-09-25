@@ -12,9 +12,10 @@ Currently in beta Version and not fully tested.
 ## Pros and Cons comparing to the original "MSSQL by ODBC" Template from Zabbix.
 
 ### Pro:
-- Does not require ODBC
-- Easy deployment
-- Does not require SQL Credentials on Zabbix Server
+- Does not require ODBC.
+- Easy deployment.
+- Does not require SQL Credentials on Zabbix Server.
+- Works with active and passive mode.
 
 ### Cons:
 - Requires Agent on SQL Server
